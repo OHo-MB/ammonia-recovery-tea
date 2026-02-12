@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ammonia Water Recovery - Strategic Dashboard</title>
+    
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.1.0/dist/chartjs-plugin-annotation.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        /* Compact slider styling with better mobile touch targets */
+        input[type=range] {
+            -webkit-appearance: none; 
+            background: transparent; 
+            width: 100%;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 18px; 
+            width: 18px;
+            border-radius: 50%;
+            background: #0f172a; 
+            border: 2px solid white;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+            margin-top: -7px; 
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        input[type=range]::-webkit-slider-thumb:hover,
+        input[type=range]::-webkit-slider-thumb:active {
+            transform: scale(1.2);
+            background: #dd4814; 
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 5px;
+            cursor: pointer;
+            background: #e2e8f0;
+            border-radius: 3px;
+        }
+        .custom-number-input::-webkit-inner-spin-button, 
+        .custom-number-input::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .tooltip-trigger:hover .tooltip-content {
+            display: block;
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans min-h-screen flex flex-col md:h-screen md:overflow-hidden">
+    <div id="root" class="flex-1 flex flex-col min-h-0"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        const Card = ({ children, className = "" }) => (
+            <div className={`bg-white rounded-lg shadow-sm border border-slate-200 p-3 md:p-4 ${className}`}>
+                {children}
+            </div>
+        );
+
+        const Tooltip = ({ text, align = 'default', position = 'bottom' }) => {
+            // Default assumes left-column fallback (avoids left spill by centering at 25%)
+            let positionClass = "left-1/2 -translate-x-1/4 sm:right-auto sm:left-1/2 sm:-translate-x-4";
+            let arrowClass = "left-1/4 -translate-x-1/2 sm:right-auto sm:left-4 sm:-translate-x-1/2";
+            
+            if (align === 'right') {
+                positionClass = "right-0 sm:left-auto sm:translate-x-0";
+                arrowClass = "right-2 sm:left-auto sm:right-4 sm:translate-x-0";
+            } else if (align === 'left') {
+                positionClass = "left-1/2 -translate-x-1/4 sm:right-auto sm:left-1/2 sm:-translate-x-4";
+                arrowClass = "left-1/4 -translate-x-1/2 sm:right-auto sm:left-4 sm:-translate-x-1/2";
+            } else if (align === 'center') {
+                positionClass = "left-1/2 -translate-x-1/2 sm:right-auto sm:left-1/2 sm:-translate-x-1/2";
+                arrowClass = "left-1/2 -translate-x-1/2 sm:right-auto sm:left-1/2 sm:-translate-x-1/2";
+            }
+
+            const isTop = position === 'top';
+            const verticalClass = isTop ? "bottom-full mb-2" : "top-full mt-2";
+            const arrowDirection = isTop ? "top-full border-t-slate-800" : "bottom-full border-b-slate-800";
+
+            return (
+                <div className={`tooltip-content hidden absolute ${verticalClass} ${positionClass} w-[220px] sm:w-64 p-2 sm:p-3 bg-slate-800 text-white text-[10px] sm:text-xs rounded shadow-lg z-50 opacity-0 transform translate-y-1 transition-all duration-200 pointer-events-none`}>
+                    {text}
+                    <div className={`absolute w-0 h-0 ${arrowDirection} ${arrowClass} border-4 border-transparent`}></div>
+                </div>
+            );
+        };
+
+        const KPICard = ({ label, value, subtext, highlight = false, children, compact = false, icon: Icon, helpText, tooltipAlign = 'default', tooltipPosition = 'bottom' }) => (
+            <div className={`bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col justify-between ${compact ? 'p-2 sm:p-3' : 'p-3 sm:p-4'} h-full min-h-[120px] sm:min-h-[140px] relative tooltip-trigger`}>
+                <div>
+                    <div className="flex justify-between items-start">
+                        <div className="text-slate-500 text-[9px] sm:text-[10px] md:text-xs font-bold uppercase tracking-wider mb-1 truncate pr-2 leading-tight">{label}</div>
+                        {Icon && <Icon size={16} className="text-slate-400 shrink-0 hidden sm:block" />}
+                        {helpText && (
+                             <div className="absolute top-2 right-2 sm:top-3 sm:right-3 text-slate-300 hover:text-slate-500 cursor-help z-10">
+                                <i data-lucide="circle-help" className="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
+                                <Tooltip text={helpText} align={tooltipAlign} position={tooltipPosition} />
+                             </div>
+                        )}
+                    </div>
+                    <div className={`font-bold ${highlight ? 'text-emerald-600' : 'text-slate-800'} ${compact ? 'text-lg sm:text-xl' : 'text-xl sm:text-2xl'} mt-1`}>
+                        {value}
+                    </div>
+                </div>
+                <div className="mt-2">
+                    {subtext && <div className="text-[10px] sm:text-xs text-slate-400 leading-tight">{subtext}</div>}
+                    {children}
+                </div>
+            </div>
+        );
+
+        const SliderInput = ({ label, value, unit, min, max, step, onChange, help, scale = 1, decimals }) => {
+            const displayValue = (value * scale);
+            const handleInputChange = (e) => {
+                const val = parseFloat(e.target.value);
+                if (!isNaN(val)) onChange(val / scale);
+            };
+
+            const precision = decimals !== undefined ? decimals : (scale > 1 ? 1 : step < 0.1 ? 3 : 2);
+
+            return (
+                <div className="mb-2 sm:mb-1 last:mb-0 w-full px-1">
+                    <div className="flex justify-between items-center mb-1 sm:mb-0.5">
+                        <label className="text-[11px] sm:text-xs font-bold text-slate-800 truncate pr-2 max-w-[65%]" title={help}>{label}</label>
+                        <div className="flex items-center shrink-0">
+                            <input
+                                type="number"
+                                value={displayValue.toFixed(precision)}
+                                onChange={handleInputChange}
+                                className="custom-number-input w-16 sm:w-20 text-right text-[11px] sm:text-xs font-normal font-mono text-slate-900 bg-slate-50 border border-slate-200 rounded px-1 py-0.5 focus:outline-none focus:border-orange-500 transition-colors"
+                            />
+                            <span className="ml-1 text-[9px] sm:text-[10px] text-slate-500 w-5 sm:w-6 font-medium">{unit}</span>
+                        </div>
+                    </div>
+                    <div className="py-1">
+                        <input
+                            type="range"
+                            min={min} max={max} step={step}
+                            value={displayValue} 
+                            onChange={handleInputChange}
+                        />
+                    </div>
+                </div>
+            );
+        };
+
+        const SLIDER_CONFIG = {
+            high: [
+                { id: 'C17', label: 'Electricity Price', unit: '€/MWh', min: 0, max: 200, step: 1, decimals: 0 },
+                { id: 'C43', label: 'EDBM Specific Energy', unit: 'kWh/kg', min: 6, max: 20, step: 0.1, decimals: 1 },
+                { id: 'C16', label: 'Lifetime (Years)', unit: 'yr', min: 5, max: 20, step: 1, decimals: 0 },
+                { id: 'C41', label: 'CAPEX EDBM', unit: '€', min: 1000000, max: 2000000, step: 10000, decimals: 0 },
+                { id: 'C69', label: 'Nitrogen Discharge Fee', unit: '€/kg N', min: 1, max: 2, step: 0.1, decimals: 1 },
+                { id: 'C54', label: 'Steam Cost', unit: '€/t', min: 25, max: 100, step: 1, decimals: 0 },
+                { id: 'C53', label: 'Steam Ratio in Stripper', unit: 'stm/liq', min: 0.15, max: 0.20, step: 0.001, decimals: 3 },
+                { id: 'C15', label: 'WACC', unit: '%', min: 0, max: 15, step: 0.1, scale: 100, decimals: 1 },
+            ],
+            medium: [
+                { id: 'C20', label: 'CAPEX Aux. Works', unit: '€', min: 500000, max: 1500000, step: 10000, decimals: 0 },
+                { id: 'C27', label: 'RO Specific Energy', unit: 'kWh/m³', min: 0.75, max: 2, step: 0.05, decimals: 2 },
+                { id: 'C7',  label: 'Maint. Factor (CAPEX)', unit: '%', min: 2, max: 5, step: 0.1, scale: 100, decimals: 1 },
+                { id: 'C66', label: 'Water Discharge Fee', unit: '€/m³', min: 0, max: 0.5, step: 0.01, decimals: 2 },
+                { id: 'C49', label: 'CAPEX Stripper', unit: '€', min: 250000, max: 1000000, step: 10000, decimals: 0 },
+            ],
+            low: [
+                { id: 'C58', label: 'Aux. Electricity (Add.)', unit: '%', min: 1, max: 10, step: 0.1, scale: 100, decimals: 1 },
+                { id: 'C25', label: 'CAPEX RO', unit: '€', min: 200000, max: 300000, step: 5000, decimals: 0 },
+                { id: 'C33', label: 'CAPEX Filtration', unit: '€', min: 20000, max: 60000, step: 1000, decimals: 0 },
+                { id: 'C61', label: 'Cost H2SO4', unit: '€/t', min: 50, max: 500, step: 5, decimals: 0 },
+                { id: 'C63', label: 'Cost NaOH', unit: '€/t', min: 150, max: 1500, step: 10, decimals: 0 },
+            ]
+        };
+
+        const INITIAL_PARAMS = {
+            C3: 0.00,  C7: 0.03,  C14: 0.17, C15: 0.08, C16: 15,   C17: 130,  C18: 7920, C20: 1000000,
+            C24: 15,   C25: 250000, C26: 69.77, C27: 1.75,
+            C32: 15,   C33: 40000, C34: 6.93,  C35: 0.15,
+            C40: 15,   C41: 1650000, C42: 31.4,  C43: 12,
+            C48: 15,   C49: 375000, C50: 0.17,  C51: 0.35, C52: 4711, C53: 0.165, C54: 35,
+            C58: 0.075, C60: 2.81,  C61: 160,   C62: 0.7,   C63: 485,
+            C65: 62.85, C66: 0.2,   C68: 25.34, C69: 1.2,
+            CGrid: 400, RefPrice: 390
+        };
+
+        const App = () => {
+            const [params, setParams] = useState(INITIAL_PARAMS);
+            const [activeTab, setActiveTab] = useState('high'); 
+            const [dashboardView, setDashboardView] = useState('economics'); 
+            const chartRef = useRef(null);
+            const chartInstance = useRef(null);
+
+            useEffect(() => {
+                if (window.lucide) window.lucide.createIcons();
+            });
+
+            const calculateResults = (p) => {
+                const annuity = (r, n) => {
+                    if (r === 0) return 1/n;
+                    const factor = Math.pow(1 + r, n);
+                    return (r * factor) / (factor - 1);
+                };
+
+                const calcAnnualCapex = (capex, n) => capex * annuity(p.C15, n) * (1 - p.C3);
+
+                const capex_ann_ostatni = calcAnnualCapex(p.C20, p.C16);
+                const capex_ann_ro = calcAnnualCapex(p.C25, p.C24);
+                const capex_ann_filtr = calcAnnualCapex(p.C33, p.C32);
+                const capex_ann_edbm = calcAnnualCapex(p.C41, p.C40);
+                const capex_ann_stripper = calcAnnualCapex(p.C49, p.C48);
+
+                const total_annual_capex = capex_ann_ostatni + capex_ann_ro + capex_ann_filtr + capex_ann_edbm + capex_ann_stripper;
+                const total_hard_capex_gross = p.C20 + p.C25 + p.C33 + p.C41 + p.C49;
+                const total_hard_capex_net = total_hard_capex_gross * (1 - p.C3);
+                const opex_maint = p.C7 * total_hard_capex_gross;
+                
+                const E_RO = (p.C26 * p.C27 * p.C18) / 1000;
+                const E_Filtr = (p.C34 * p.C35 * p.C18) / 1000;
+                const E_EDBM = (p.C42 * p.C43 * p.C18) / 1000;
+                const E_Stripper = (p.C50 * p.C51 * p.C18) / 1000;
+                const total_MWh = E_RO + E_Filtr + E_EDBM + E_Stripper;
+                const opex_electricity = total_MWh * (1 + p.C58) * p.C17;
+
+                const opex_steam = (p.C52 * p.C18 * p.C53 * p.C54) / 1000;
+                const cost_h2so4 = (p.C60 * p.C18 * p.C61) / 1000;
+                const cost_naoh = (p.C62 * p.C18 * p.C63) / 1000;
+                const opex_chem = cost_h2so4 + cost_naoh;
+
+                const total_annual_opex = opex_maint + opex_electricity + opex_steam + opex_chem;
+
+                const rev_N = p.C68 * p.C18 * p.C69;
+                const rev_water = p.C65 * p.C18 * p.C66;
+                const total_revenue = rev_N + rev_water;
+                
+                const total_positive_costs = total_annual_capex + total_annual_opex;
+                const annual_production = p.C14 * p.C18;
+                const total_annual_cost_net = total_annual_capex + total_annual_opex - total_revenue;
+                const lcop = annual_production > 0 ? total_annual_cost_net / annual_production : 0;
+
+                const elec_share = total_positive_costs > 0 ? (opex_electricity / total_positive_costs) * 100 : 0;
+                const steam_share = total_positive_costs > 0 ? (opex_steam / total_positive_costs) * 100 : 0;
+
+                const savings_virgin_ammonia = annual_production * p.RefPrice;
+                const total_economic_benefit = savings_virgin_ammonia + total_revenue; 
+                const annual_cash_flow = total_economic_benefit - total_annual_opex;
+
+                const payback_years = annual_cash_flow > 0 ? total_hard_capex_net / annual_cash_flow : 999;
+                const horizon_npv = Math.round(p.C16);
+                const total_return = (annual_cash_flow * horizon_npv) - total_hard_capex_net;
+                const roi = (total_return / total_hard_capex_net) * 100;
+
+                let npv = -total_hard_capex_net;
+                for (let t = 1; t <= horizon_npv; t++) {
+                    npv += annual_cash_flow / Math.pow(1 + p.C15, t);
+                }
+
+                let irr = 0;
+                if (annual_cash_flow > 0) {
+                    let low = -0.5, high = 1.0;
+                    for(let i=0; i<50; i++) {
+                        const mid = (low + high) / 2;
+                        let npv_irr = -total_hard_capex_net;
+                        for (let t = 1; t <= horizon_npv; t++) npv_irr += annual_cash_flow / Math.pow(1 + mid, t);
+                        if (npv_irr > 0) low = mid; else high = mid;
+                    }
+                    irr = low * 100;
+                }
+                
+                const dscr = total_annual_capex > 0 ? annual_cash_flow / total_annual_capex : 0;
+                const total_co2_kg = total_MWh * p.CGrid;
+                const carbon_intensity = annual_production > 0 ? total_co2_kg / annual_production : 0; 
+                const water_recovery_rate = 90;
+
+                const density_20pct = 920; 
+                const weight_fraction_nh3 = 0.20;
+                const n_fraction = 14.007 / 17.031;
+                const avoided_nitrogen_tonnes = (annual_production * density_20pct * weight_fraction_nh3 * n_fraction) / 1000;
+
+                const cumulative_cashflow = [-total_hard_capex_net];
+                let running_cf = -total_hard_capex_net;
+                for(let i=1; i<=horizon_npv; i++) {
+                    running_cf += annual_cash_flow;
+                    cumulative_cashflow.push(running_cf);
+                }
+
+                return {
+                    lcop, total_hard_capex_net, total_annual_opex, elec_share, steam_share,
+                    components: [total_annual_capex, opex_maint, opex_electricity, opex_steam, opex_chem, -total_revenue],
+                    annual_cash_flow, payback_years, roi, npv, irr, dscr, cumulative_cashflow, horizon_npv,
+                    carbon_intensity, water_recovery_rate, avoided_nitrogen_tonnes
+                };
+            };
+
+            const currentResults = useMemo(() => calculateResults(params), [params]);
+            const referenceResults = useMemo(() => calculateResults(INITIAL_PARAMS), []);
+
+            useEffect(() => {
+                const ctx = chartRef.current.getContext('2d');
+                if (chartInstance.current) chartInstance.current.destroy();
+
+                const isMobile = window.innerWidth < 768;
+
+                if (dashboardView === 'economics') {
+                    chartInstance.current = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: ['CAPEX', 'Maintenance', 'Electricity', 'Steam', 'Chemicals', 'Savings'],
+                            datasets: [
+                                {
+                                    label: 'Current',
+                                    data: currentResults.components,
+                                    backgroundColor: ['rgba(59, 130, 246, 0.9)', 'rgba(245, 158, 11, 0.9)', 'rgba(239, 68, 68, 0.9)', 'rgba(249, 115, 22, 0.9)', 'rgba(139, 92, 246, 0.9)', 'rgba(16, 185, 129, 0.9)'],
+                                    borderRadius: 4,
+                                    barThickness: isMobile ? 25 : 45,
+                                    order: 1
+                                },
+                                {
+                                    label: 'Ref',
+                                    data: referenceResults.components,
+                                    backgroundColor: 'transparent',
+                                    borderColor: '#94a3b8', 
+                                    borderWidth: 1,
+                                    borderDash: [4, 3],
+                                    borderRadius: 4,
+                                    barThickness: isMobile ? 30 : 55,
+                                    order: 2,
+                                    skipNull: true
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    callbacks: {
+                                        label: (context) => context.raw !== null ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(context.raw) : ''
+                                    }
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    ticks: { callback: (value) => (value / 1000) + 'k€', font: { size: isMobile ? 10 : 12 } },
+                                    grid: { color: '#f1f5f9' }
+                                },
+                                x: { ticks: { font: { size: isMobile ? 9 : 12 }, maxRotation: 45, minRotation: 45 }, grid: { display: false } }
+                            }
+                        }
+                    });
+                } else if (dashboardView === 'esg') {
+                    const labels = Array.from({length: currentResults.horizon_npv + 1}, (_, i) => `Yr ${i}`);
+                    chartInstance.current = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: 'Cumulative Cash Flow',
+                                data: currentResults.cumulative_cashflow,
+                                borderColor: currentResults.payback_years < currentResults.horizon_npv ? '#10b981' : '#ef4444',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                fill: true,
+                                tension: 0.3,
+                                pointRadius: isMobile ? 2 : 3,
+                                pointHoverRadius: isMobile ? 4 : 6
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: isMobile ? 10 : 12 } } },
+                                annotation: {
+                                    annotations: {
+                                        line1: { type: 'line', yMin: 0, yMax: 0, borderColor: 'rgb(0, 0, 0)', borderWidth: 1 }
+                                    }
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    ticks: { callback: (value) => (value / 1000000).toFixed(1) + ' M€', font: { size: isMobile ? 10 : 12 } },
+                                    grid: { color: '#f1f5f9' },
+                                    title: { display: !isMobile, text: 'Cumulative Net Value' }
+                                },
+                                x: { ticks: { font: { size: isMobile ? 9 : 12 }, maxRotation: 45 } }
+                            }
+                        }
+                    });
+                } else if (dashboardView === 'sensitivity') {
+                    const baseLCOP = currentResults.lcop;
+                    
+                    const sensitivities = Object.values(SLIDER_CONFIG).flat().map(conf => {
+                        const actualMin = conf.min / (conf.scale || 1);
+                        const actualMax = conf.max / (conf.scale || 1);
+                        
+                        const resMin = calculateResults({ ...params, [conf.id]: actualMin });
+                        const resMax = calculateResults({ ...params, [conf.id]: actualMax });
+                        
+                        const deltaMin = resMin.lcop - baseLCOP;
+                        const deltaMax = resMax.lcop - baseLCOP;
+                        
+                        return {
+                            label: conf.label,
+                            deltaMin,
+                            deltaMax,
+                            spread: Math.max(Math.abs(deltaMin), Math.abs(deltaMax), Math.abs(deltaMax - deltaMin))
+                        };
+                    });
+                    
+                    sensitivities.sort((a, b) => {
+                        const spreadDiff = b.spread - a.spread;
+                        if (Math.abs(spreadDiff) < 1e-6) return a.label.localeCompare(b.label);
+                        return spreadDiff;
+                    });
+                    const topSensitivities = sensitivities.slice(0, 10);
+
+                    chartInstance.current = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: topSensitivities.map(s => s.label),
+                            datasets: [
+                                {
+                                    label: 'Impact of Minimum Input',
+                                    data: topSensitivities.map(s => s.deltaMin),
+                                    backgroundColor: 'rgba(59, 130, 246, 0.85)',
+                                    barThickness: isMobile ? 10 : 16,
+                                },
+                                {
+                                    label: 'Impact of Maximum Input',
+                                    data: topSensitivities.map(s => s.deltaMax),
+                                    backgroundColor: 'rgba(239, 68, 68, 0.85)',
+                                    barThickness: isMobile ? 10 : 16,
+                                }
+                            ]
+                        },
+                        options: {
+                            indexAxis: 'y',
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: isMobile ? 10 : 12 } } },
+                                annotation: {
+                                    annotations: {
+                                        line1: { type: 'line', xMin: 0, xMax: 0, borderColor: 'rgb(15, 23, 42)', borderWidth: 1 }
+                                    }
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: (context) => {
+                                            const val = context.raw;
+                                            const sign = val > 0 ? '+' : '';
+                                            return `${context.dataset.label}: ${sign}${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(val)} €/m³ LCOP`;
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    title: { display: true, text: 'Change in LCOP (€/m³)' },
+                                    grid: { color: '#f1f5f9' },
+                                    ticks: { font: { size: isMobile ? 10 : 12 } }
+                                },
+                                y: {
+                                    grid: { display: false },
+                                    ticks: { font: { size: isMobile ? 9 : 11 } }
+                                }
+                            }
+                        }
+                    });
+                }
+            }, [currentResults, referenceResults, dashboardView, params]);
+
+            const lcopDiff = currentResults.lcop - params.RefPrice;
+            const lcopDiffPercent = (Math.abs(lcopDiff) / params.RefPrice) * 100;
+            const lcopStatus = lcopDiff > 0 ? "more expensive" : "cheaper";
+
+            const renderEconomicsView = () => (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 mb-4 shrink-0">
+                    <KPICard 
+                        label="LCOP (Recovered NH3 20%)" 
+                        value={currentResults.lcop.toLocaleString('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 1 }) + " /m³"} 
+                        highlight={true}
+                        tooltipAlign="left"
+                        helpText="Levelized Cost of Processing: Total annualized cost per m3."
+                    >
+                       <div className="flex flex-col gap-1 mt-1 text-[9px] sm:text-[10px] md:text-xs">
+                             <div className="flex justify-between items-center text-slate-400">
+                                <span>Ref Price:</span>
+                                <div className="flex items-center bg-white border border-slate-200 rounded px-1 py-0.5">
+                                    <input 
+                                        type="number" step="1"
+                                        value={params.RefPrice}
+                                        onChange={(e) => setParams(prev => ({...prev, RefPrice: parseFloat(e.target.value) || 0}))}
+                                        className="w-10 sm:w-12 text-right font-mono font-bold text-slate-600 focus:outline-none bg-transparent"
+                                    />
+                                    <span className="ml-0.5 text-[8px] sm:text-[10px] text-slate-500">€</span>
+                                </div>
+                            </div>
+                            <div className={`font-medium mt-0.5 sm:mt-1 ${lcopDiff > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+                                {lcopDiffPercent.toFixed(1)}% {lcopStatus}
+                            </div>
+                       </div>
+                    </KPICard>
+
+                    <KPICard 
+                        label="Total Net CAPEX" 
+                        value={currentResults.total_hard_capex_net.toLocaleString('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, notation: window.innerWidth < 640 ? "compact" : "standard" })} 
+                        tooltipAlign="right"
+                        helpText="Total Capital Expenditure minus subsidies."
+                    >
+                        <div className="mt-2 bg-slate-50 p-1 sm:p-1.5 rounded border border-slate-100 flex justify-between items-center">
+                            <label className="text-[9px] sm:text-[10px] font-semibold text-slate-500">Subsidy</label>
+                            <div className="flex items-center bg-white border border-slate-200 rounded px-1 sm:px-1.5 py-0.5">
+                                <input 
+                                    type="number" min="0" max="100" step="1"
+                                    value={(params.C3 * 100).toFixed(0)}
+                                    onChange={(e) => setParams(prev => ({...prev, C3: parseFloat(e.target.value)/100 || 0}))}
+                                    className="w-6 sm:w-8 text-right text-[10px] sm:text-xs font-mono focus:outline-none"
+                                />
+                                <span className="ml-0.5 text-[9px] sm:text-[10px] text-slate-500">%</span>
+                            </div>
+                        </div>
+                    </KPICard>
+
+                    <KPICard 
+                        label="Total Annual OPEX" 
+                        value={currentResults.total_annual_opex.toLocaleString('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, notation: window.innerWidth < 640 ? "compact" : "standard" })} 
+                        tooltipAlign="left"
+                        helpText="Includes maintenance, electricity, steam, and chemical costs."
+                    >
+                         <div className="text-[9px] sm:text-[10px] text-slate-400 mt-1 leading-tight">Maint. + Energy + Chem</div>
+                    </KPICard>
+
+                    <KPICard 
+                        label="Cost Shares" 
+                        value="Breakdown" 
+                        compact={true} 
+                        tooltipAlign="right" 
+                        helpText="Percentage share of Electricity and Steam."
+                    >
+                         <div className="flex flex-col gap-1 sm:gap-2 mt-1">
+                            <div>
+                                <div className="flex justify-between text-[8px] sm:text-[10px] font-bold uppercase text-slate-500 mb-0.5">Electricity</div>
+                                <div className="flex items-center gap-1 sm:gap-2">
+                                    <div className="w-full bg-slate-100 rounded-full h-1 sm:h-1.5">
+                                        <div className="bg-red-500 h-1 sm:h-1.5 rounded-full transition-all duration-500" style={{width: `${currentResults.elec_share}%`}}></div>
+                                    </div>
+                                    <div className="text-[10px] sm:text-xs font-bold text-red-600 w-6 sm:w-8 text-right">{currentResults.elec_share.toFixed(0)}%</div>
+                                </div>
+                            </div>
+                            <div>
+                                <div className="flex justify-between text-[8px] sm:text-[10px] font-bold uppercase text-slate-500 mb-0.5">Steam</div>
+                                <div className="flex items-center gap-1 sm:gap-2">
+                                    <div className="w-full bg-slate-100 rounded-full h-1 sm:h-1.5">
+                                        <div className="bg-orange-500 h-1 sm:h-1.5 rounded-full transition-all duration-500" style={{width: `${currentResults.steam_share}%`}}></div>
+                                    </div>
+                                    <div className="text-[10px] sm:text-xs font-bold text-orange-600 w-6 sm:w-8 text-right">{currentResults.steam_share.toFixed(0)}%</div>
+                                </div>
+                            </div>
+                         </div>
+                    </KPICard>
+                </div>
+            );
+
+            const renderESGView = () => (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 mb-4 shrink-0">
+                    <KPICard 
+                        label={`NPV (${currentResults.horizon_npv} Yrs)`} 
+                        value={currentResults.npv.toLocaleString('en-US', { style: 'currency', currency: 'EUR', notation: "compact" })} 
+                        highlight={currentResults.npv > 0} 
+                        tooltipAlign="left"
+                        helpText="Net Present Value over project lifetime."
+                    >
+                         <div className="text-[9px] sm:text-[10px] text-slate-400 mt-1 flex flex-col gap-1">
+                            <div className="flex justify-between border-t border-slate-100 pt-1 mt-0.5">
+                                <span>IRR: <span className={`font-bold ${currentResults.irr > params.C15*100 ? 'text-emerald-600' : 'text-orange-500'}`}>{currentResults.irr.toFixed(1)}%</span></span>
+                                <span>ROI: {currentResults.roi.toFixed(0)}%</span>
+                            </div>
+                         </div>
+                    </KPICard>
+
+                    <KPICard 
+                        label="Payback Period" 
+                        value={currentResults.payback_years > 20 ? "> 20 Yrs" : currentResults.payback_years.toFixed(1) + " Yrs"} 
+                        tooltipAlign="right"
+                        helpText="Time required to recoup the initial Net CAPEX."
+                    >
+                         <div className="mt-2 bg-slate-50 p-1 sm:p-1.5 rounded border border-slate-100 flex justify-between items-center">
+                            <label className="text-[9px] sm:text-[10px] font-semibold text-slate-500">Subsidy</label>
+                            <div className="flex items-center bg-white border border-slate-200 rounded px-1 sm:px-1.5 py-0.5">
+                                <input 
+                                    type="number" min="0" max="100" step="1"
+                                    value={(params.C3 * 100).toFixed(0)}
+                                    onChange={(e) => setParams(prev => ({...prev, C3: parseFloat(e.target.value)/100 || 0}))}
+                                    className="w-6 sm:w-8 text-right text-[10px] sm:text-xs font-mono focus:outline-none"
+                                />
+                                <span className="ml-0.5 text-[9px] sm:text-[10px] text-slate-500">%</span>
+                            </div>
+                        </div>
+                        <div className="text-[9px] sm:text-[10px] text-slate-400 mt-1 text-right">
+                             DSCR: <span className={`font-bold ${currentResults.dscr > 1.2 ? 'text-emerald-600' : 'text-orange-500'}`}>{currentResults.dscr.toFixed(2)}x</span>
+                        </div>
+                    </KPICard>
+
+                     <KPICard 
+                         label="Carbon Intensity" 
+                         value={currentResults.carbon_intensity.toFixed(1)} 
+                         subtext="kg CO2 / m³ recovered NH3" 
+                         tooltipAlign="left"
+                         helpText="Carbon footprint per m3 based on electricity grid factor."
+                     >
+                         <div className="mt-2 pt-1 border-t border-slate-100">
+                             <div className="flex justify-between items-center mb-1">
+                                <span className="text-[9px] sm:text-[10px] text-slate-500 font-semibold">Grid (gCO2eq/kWh)</span>
+                                <span className="text-[9px] sm:text-[10px] font-mono font-bold text-slate-700">{params.CGrid.toFixed(0)}</span>
+                             </div>
+                             <input 
+                                type="range" min="0" max="1000" step="10"
+                                value={params.CGrid}
+                                onChange={(e) => setParams(prev => ({...prev, CGrid: parseFloat(e.target.value)}))}
+                             />
+                        </div>
+                    </KPICard>
+
+                     <KPICard 
+                         label="Nitrogen Avoided" 
+                         value={currentResults.avoided_nitrogen_tonnes.toFixed(0) + " t/yr"} 
+                         subtext="Discharge prevented" 
+                         highlight={true} 
+                         tooltipAlign="right" 
+                         helpText="Mass of nitrogen recovered based on 20% wt NH3."
+                     >
+                         <div className="text-[9px] sm:text-[10px] text-emerald-600 mt-1 font-medium">Water Rec.: {currentResults.water_recovery_rate.toFixed(0)}%</div>
+                    </KPICard>
+                </div>
+            );
+
+            return (
+                <div className="w-full max-w-[1920px] mx-auto p-2 sm:p-4 md:px-6 md:py-4 flex flex-col min-h-full md:h-full overflow-y-auto custom-scrollbar md:overflow-hidden bg-slate-50">
+                    {/* Header */}
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 sm:mb-4 shrink-0 gap-2 sm:gap-3">
+                        <div className="flex items-center gap-2 sm:gap-3">
+                            <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-slate-800 tracking-tight">
+                                Ammonia Water Recovery Dashboard
+                            </h1>
+                        </div>
+                        
+                        {/* Adjusted container for tabs and reset button to stack nicely on mobile */}
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                            <div className="flex bg-slate-200 rounded-lg p-1 w-full sm:w-auto overflow-x-auto custom-scrollbar shrink-0">
+                                <button 
+                                    onClick={() => setDashboardView('economics')}
+                                    className={`whitespace-nowrap flex-1 sm:flex-none px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs font-bold rounded-md transition-all ${dashboardView === 'economics' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                >
+                                    Techno-Economic
+                                </button>
+                                <button 
+                                    onClick={() => setDashboardView('sensitivity')}
+                                    className={`whitespace-nowrap flex-1 sm:flex-none px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs font-bold rounded-md transition-all flex items-center justify-center gap-1 sm:gap-2 ${dashboardView === 'sensitivity' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                >
+                                    Sensitivity
+                                </button>
+                                <button 
+                                    onClick={() => setDashboardView('esg')}
+                                    className={`whitespace-nowrap flex-1 sm:flex-none px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs font-bold rounded-md transition-all flex items-center justify-center gap-1 sm:gap-2 ${dashboardView === 'esg' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                >
+                                    Strategic & ESG
+                                </button>
+                            </div>
+
+                            <button 
+                                onClick={() => setParams(INITIAL_PARAMS)}
+                                className="w-full sm:w-auto text-[10px] sm:text-xs bg-white border border-slate-300 text-slate-600 hover:border-red-300 hover:text-red-600 font-bold px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg shadow-sm transition-all flex items-center justify-center gap-1 sm:gap-2 shrink-0"
+                            >
+                                <i data-lucide="rotate-ccw" className="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
+                                <span className="inline">Reset</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Show Economics KPIs when on Sensitivity View to provide context */}
+                    {dashboardView === 'esg' ? renderESGView() : renderEconomicsView()}
+
+                    {/* Split View with Adaptive Heights */}
+                    <div className="flex flex-col md:flex-row gap-3 sm:gap-4 flex-1 min-h-[800px] md:min-h-0">
+                        
+                        {/* LEFT: Controls */}
+                        <div className="md:w-[35%] lg:w-1/3 flex flex-col h-[400px] md:h-full">
+                            <Card className="flex flex-col h-full p-0 overflow-hidden">
+                                <div className="flex bg-slate-100 border-b border-slate-200 p-1 shrink-0">
+                                    {['high', 'medium', 'low'].map(level => (
+                                        <button
+                                            key={level}
+                                            onClick={() => setActiveTab(level)}
+                                            className={`flex-1 py-1 sm:py-1.5 text-[10px] sm:text-xs font-medium rounded-md capitalize transition-all ${
+                                                activeTab === level 
+                                                ? 'bg-white text-slate-900 shadow-sm text-orange-600' 
+                                                : 'text-slate-500 hover:text-slate-700'
+                                            }`}
+                                        >
+                                            {level}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="flex-1 overflow-y-auto custom-scrollbar p-2 sm:p-3 overflow-x-hidden">
+                                    <div className="w-full">
+                                        {SLIDER_CONFIG[activeTab].map(conf => (
+                                            <SliderInput key={conf.id} {...conf} value={params[conf.id]} onChange={(val) => setParams(prev => ({...prev, [conf.id]: val}))} />
+                                        ))}
+                                    </div>
+                                </div>
+                            </Card>
+                        </div>
+
+                        {/* RIGHT: Chart */}
+                        <div className="md:w-[65%] lg:w-2/3 flex flex-col h-[400px] md:h-full pb-4 md:pb-0">
+                            <Card className="flex flex-col h-full">
+                                <div className="flex justify-between items-center mb-2 shrink-0">
+                                    <h3 className="font-semibold text-slate-800 text-xs sm:text-sm">
+                                        {dashboardView === 'economics' ? 'Annual Cost Breakdown' : 
+                                         dashboardView === 'esg' ? 'Cumulative Cash Flow Analysis' : 
+                                         'LCOP Sensitivity Analysis (Tornado Chart)'}
+                                    </h3>
+                                    {dashboardView === 'economics' && (
+                                        <div className="flex items-center gap-2 sm:gap-3 text-[9px] sm:text-[10px]">
+                                            <div className="flex items-center gap-1 sm:gap-1.5 text-slate-500">
+                                                <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 bg-blue-500 rounded-sm opacity-90"></span> Current
+                                            </div>
+                                            <div className="flex items-center gap-1 sm:gap-1.5 text-slate-400">
+                                                <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 border border-slate-400 border-dashed rounded-sm"></span> Baseline
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="relative flex-1 min-h-0 w-full">
+                                    <canvas ref={chartRef}></canvas>
+                                </div>
+                            </Card>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
