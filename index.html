@@ -49,7 +49,7 @@
             -webkit-appearance: none; 
             margin: 0; 
         }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
@@ -112,8 +112,37 @@
             );
         };
 
-        const KPICard = ({ label, value, subtext, highlight = false, children, compact = false, icon: Icon, helpText, tooltipAlign = 'default', tooltipPosition = 'bottom' }) => (
-            <div className={`bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col justify-between ${compact ? 'p-2 sm:p-3' : 'p-3 sm:p-4'} h-full min-h-[120px] sm:min-h-[140px] relative tooltip-trigger`}>
+        const DeltaBadge = ({ current, snapshot, type = 'cost', format = 'currency', suffix = '' }) => {
+            if (snapshot === null || snapshot === undefined) return null;
+            
+            const diff = current - snapshot;
+            if (Math.abs(diff) < 0.001) return null;
+
+            // Cost: Lower is better (Green), Higher is worse (Red)
+            // Value: Higher is better (Green), Lower is worse (Red)
+            let isGood = type === 'cost' ? diff < 0 : diff > 0;
+            const colorClass = isGood ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-rose-600 bg-rose-50 border-rose-100';
+            const arrow = diff > 0 ? '▲' : '▼';
+            
+            let displayDiff = Math.abs(diff);
+            if (format === 'currency') {
+                // Approximate for space saving
+                if (displayDiff > 1000) displayDiff = (displayDiff / 1000).toFixed(1) + 'k';
+                else displayDiff = displayDiff.toFixed(1);
+            } else {
+                displayDiff = displayDiff.toFixed(1);
+            }
+
+            return (
+                <div className={`flex items-center gap-0.5 text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded border ${colorClass} font-mono font-medium ml-2`}>
+                    <span>{arrow}</span>
+                    <span>{format === 'currency' ? '€' : ''}{displayDiff}{suffix}</span>
+                </div>
+            );
+        };
+
+        const KPICard = ({ label, value, subtext, highlight = false, children, compact = false, icon: Icon, helpText, tooltipAlign = 'default', tooltipPosition = 'bottom', comparisonValue, comparisonType = 'cost' }) => (
+            <div className={`bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col justify-between ${compact ? 'p-2 sm:p-3' : 'p-3 sm:p-4'} h-full min-h-[110px] sm:min-h-[130px] relative tooltip-trigger`}>
                 <div>
                     <div className="flex justify-between items-start">
                         <div className="text-slate-500 text-[9px] sm:text-[10px] md:text-xs font-bold uppercase tracking-wider mb-1 truncate pr-2 leading-tight">{label}</div>
@@ -125,8 +154,13 @@
                              </div>
                         )}
                     </div>
-                    <div className={`font-bold ${highlight ? 'text-emerald-600' : 'text-slate-800'} ${compact ? 'text-lg sm:text-xl' : 'text-xl sm:text-2xl'} mt-1`}>
-                        {value}
+                    <div className="flex items-center flex-wrap gap-y-1">
+                        <div className={`font-bold ${highlight ? 'text-emerald-600' : 'text-slate-800'} ${compact ? 'text-lg sm:text-xl' : 'text-xl sm:text-2xl'} mt-1`}>
+                            {value}
+                        </div>
+                        {comparisonValue !== undefined && (
+                            <DeltaBadge current={parseFloat(value.toString().replace(/[^0-9.-]+/g,""))} snapshot={comparisonValue} type={comparisonType} />
+                        )}
                     </div>
                 </div>
                 <div className="mt-2">
@@ -214,6 +248,8 @@
             const [activeTab, setActiveTab] = useState('high'); 
             const [dashboardView, setDashboardView] = useState('economics'); 
             const [showProcessFlow, setShowProcessFlow] = useState(false);
+            const [snapshotParams, setSnapshotParams] = useState(null);
+
             const chartRef = useRef(null);
             const chartInstance = useRef(null);
 
@@ -320,6 +356,15 @@
 
             const currentResults = useMemo(() => calculateResults(params), [params]);
             const referenceResults = useMemo(() => calculateResults(INITIAL_PARAMS), []);
+            const snapshotResults = useMemo(() => snapshotParams ? calculateResults(snapshotParams) : null, [snapshotParams]);
+
+            const handleSnapshotToggle = () => {
+                if (snapshotParams) {
+                    setSnapshotParams(null);
+                } else {
+                    setSnapshotParams({...params});
+                }
+            };
 
             useEffect(() => {
                 if (!chartRef.current) return;
@@ -330,41 +375,64 @@
                 const isMobile = window.innerWidth < 768;
 
                 if (dashboardView === 'economics') {
+                    const datasets = [
+                        {
+                            label: 'Current',
+                            data: currentResults.components,
+                            backgroundColor: ['rgba(59, 130, 246, 0.9)', 'rgba(245, 158, 11, 0.9)', 'rgba(239, 68, 68, 0.9)', 'rgba(249, 115, 22, 0.9)', 'rgba(139, 92, 246, 0.9)', 'rgba(16, 185, 129, 0.9)'],
+                            borderRadius: 4,
+                            barThickness: isMobile ? (snapshotResults ? 15 : 25) : (snapshotResults ? 25 : 45),
+                            order: 1
+                        },
+                        {
+                            label: 'Initial Baseline',
+                            data: referenceResults.components,
+                            backgroundColor: 'transparent',
+                            borderColor: '#94a3b8', 
+                            borderWidth: 1,
+                            borderDash: [4, 3],
+                            borderRadius: 4,
+                            barThickness: isMobile ? (snapshotResults ? 18 : 30) : (snapshotResults ? 30 : 55),
+                            order: 3,
+                            skipNull: true
+                        }
+                    ];
+
+                    if (snapshotResults) {
+                        datasets.splice(1, 0, {
+                            label: 'Snapshot',
+                            data: snapshotResults.components,
+                            backgroundColor: 'rgba(148, 163, 184, 0.5)',
+                            borderColor: 'rgba(100, 116, 139, 0.8)',
+                            borderWidth: 1,
+                            borderRadius: 4,
+                            barThickness: isMobile ? 15 : 25,
+                            order: 2
+                        });
+                    }
+
                     chartInstance.current = new Chart(ctx, {
                         type: 'bar',
                         data: {
                             labels: ['CAPEX', 'Maintenance', 'Electricity', 'Steam', 'Chemicals', 'Savings'],
-                            datasets: [
-                                {
-                                    label: 'Current',
-                                    data: currentResults.components,
-                                    backgroundColor: ['rgba(59, 130, 246, 0.9)', 'rgba(245, 158, 11, 0.9)', 'rgba(239, 68, 68, 0.9)', 'rgba(249, 115, 22, 0.9)', 'rgba(139, 92, 246, 0.9)', 'rgba(16, 185, 129, 0.9)'],
-                                    borderRadius: 4,
-                                    barThickness: isMobile ? 25 : 45,
-                                    order: 1
-                                },
-                                {
-                                    label: 'Ref',
-                                    data: referenceResults.components,
-                                    backgroundColor: 'transparent',
-                                    borderColor: '#94a3b8', 
-                                    borderWidth: 1,
-                                    borderDash: [4, 3],
-                                    borderRadius: 4,
-                                    barThickness: isMobile ? 30 : 55,
-                                    order: 2,
-                                    skipNull: true
-                                }
-                            ]
+                            datasets: datasets
                         },
                         options: {
                             responsive: true,
                             maintainAspectRatio: false,
                             plugins: {
-                                legend: { display: false },
+                                legend: { 
+                                    display: !!snapshotResults,
+                                    position: 'top',
+                                    labels: { boxWidth: 12, font: { size: isMobile ? 10 : 12 } }
+                                },
                                 tooltip: {
                                     callbacks: {
-                                        label: (context) => context.raw !== null ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(context.raw) : ''
+                                        label: (context) => {
+                                            const label = context.dataset.label || '';
+                                            const val = context.raw;
+                                            return `${label}: ${val !== null ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(val) : ''}`;
+                                        }
                                     }
                                 }
                             },
@@ -378,21 +446,38 @@
                         }
                     });
                 } else if (dashboardView === 'esg') {
-                    const labels = Array.from({length: currentResults.horizon_npv + 1}, (_, i) => `Yr ${i}`);
+                    const labels = Array.from({length: Math.max(currentResults.horizon_npv, snapshotResults ? snapshotResults.horizon_npv : 0) + 1}, (_, i) => `Yr ${i}`);
+                    
+                    const datasets = [{
+                        label: 'Current Cash Flow',
+                        data: currentResults.cumulative_cashflow,
+                        borderColor: currentResults.payback_years < currentResults.horizon_npv ? '#10b981' : '#ef4444',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        fill: !snapshotResults, // Only fill if single line for cleaner look
+                        tension: 0.3,
+                        pointRadius: isMobile ? 2 : 3,
+                        pointHoverRadius: isMobile ? 4 : 6
+                    }];
+
+                    if (snapshotResults) {
+                        datasets.push({
+                            label: 'Snapshot Cash Flow',
+                            data: snapshotResults.cumulative_cashflow,
+                            borderColor: '#94a3b8',
+                            backgroundColor: 'transparent',
+                            borderDash: [5, 5],
+                            fill: false,
+                            tension: 0.3,
+                            pointRadius: 0,
+                            pointHoverRadius: isMobile ? 4 : 6
+                        });
+                    }
+
                     chartInstance.current = new Chart(ctx, {
                         type: 'line',
                         data: {
                             labels: labels,
-                            datasets: [{
-                                label: 'Cumulative Cash Flow',
-                                data: currentResults.cumulative_cashflow,
-                                borderColor: currentResults.payback_years < currentResults.horizon_npv ? '#10b981' : '#ef4444',
-                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                                fill: true,
-                                tension: 0.3,
-                                pointRadius: isMobile ? 2 : 3,
-                                pointHoverRadius: isMobile ? 4 : 6
-                            }]
+                            datasets: datasets
                         },
                         options: {
                             responsive: true,
@@ -497,7 +582,7 @@
                         }
                     });
                 }
-            }, [currentResults, referenceResults, dashboardView, params]);
+            }, [currentResults, referenceResults, snapshotResults, dashboardView, params]);
 
             const lcopDiff = currentResults.lcop - params.RefPrice;
             const lcopDiffPercent = (Math.abs(lcopDiff) / params.RefPrice) * 100;
@@ -511,6 +596,8 @@
                         highlight={true}
                         tooltipAlign="left"
                         helpText="Levelized Cost of Processing: Total annualized cost per m3."
+                        comparisonValue={snapshotResults?.lcop}
+                        comparisonType="cost"
                     >
                        <div className="flex flex-col gap-1 mt-1 text-[9px] sm:text-[10px] md:text-xs">
                              <div className="flex justify-between items-center text-slate-400">
@@ -536,6 +623,8 @@
                         value={currentResults.total_hard_capex_net.toLocaleString('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, notation: window.innerWidth < 640 ? "compact" : "standard" })} 
                         tooltipAlign="right"
                         helpText="Total Capital Expenditure minus subsidies."
+                        comparisonValue={snapshotResults?.total_hard_capex_net}
+                        comparisonType="cost"
                     >
                         <div className="mt-2 bg-slate-50 p-1 sm:p-1.5 rounded border border-slate-100 flex justify-between items-center">
                             <label className="text-[9px] sm:text-[10px] font-semibold text-slate-500">Subsidy</label>
@@ -556,6 +645,8 @@
                         value={currentResults.total_annual_opex.toLocaleString('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, notation: window.innerWidth < 640 ? "compact" : "standard" })} 
                         tooltipAlign="left"
                         helpText="Includes maintenance, electricity, steam, and chemical costs."
+                        comparisonValue={snapshotResults?.total_annual_opex}
+                        comparisonType="cost"
                     >
                          <div className="text-[9px] sm:text-[10px] text-slate-400 mt-1 leading-tight">Maint. + Energy + Chem</div>
                     </KPICard>
@@ -599,6 +690,8 @@
                         highlight={currentResults.npv > 0} 
                         tooltipAlign="left"
                         helpText="Net Present Value over project lifetime."
+                        comparisonValue={snapshotResults?.npv}
+                        comparisonType="value"
                     >
                          <div className="text-[9px] sm:text-[10px] text-slate-400 mt-1 flex flex-col gap-1">
                             <div className="flex justify-between border-t border-slate-100 pt-1 mt-0.5">
@@ -613,6 +706,8 @@
                         value={currentResults.payback_years > 20 ? "> 20 Yrs" : currentResults.payback_years.toFixed(1) + " Yrs"} 
                         tooltipAlign="right"
                         helpText="Time required to recoup the initial Net CAPEX."
+                        comparisonValue={snapshotResults?.payback_years}
+                        comparisonType="cost"
                     >
                          <div className="mt-2 bg-slate-50 p-1 sm:p-1.5 rounded border border-slate-100 flex justify-between items-center">
                             <label className="text-[9px] sm:text-[10px] font-semibold text-slate-500">Subsidy</label>
@@ -637,6 +732,8 @@
                          subtext="kg CO2 / m³ recovered NH3" 
                          tooltipAlign="left"
                          helpText="Carbon footprint per m3 based on electricity grid factor."
+                         comparisonValue={snapshotResults?.carbon_intensity}
+                         comparisonType="cost"
                      >
                          <div className="mt-2 pt-1 border-t border-slate-100">
                              <div className="flex justify-between items-center mb-1">
@@ -658,6 +755,8 @@
                          highlight={true} 
                          tooltipAlign="right" 
                          helpText="Mass of nitrogen recovered based on 20% wt NH3."
+                         comparisonValue={snapshotResults?.avoided_nitrogen_tonnes}
+                         comparisonType="value"
                      >
                          <div className="text-[9px] sm:text-[10px] text-emerald-600 mt-1 font-medium">Water Rec.: {currentResults.water_recovery_rate.toFixed(0)}%</div>
                     </KPICard>
@@ -667,43 +766,57 @@
             return (
                 <div className="w-full max-w-[1920px] mx-auto p-2 sm:p-4 md:px-6 md:py-4 flex flex-col min-h-full md:h-full overflow-y-auto custom-scrollbar md:overflow-hidden bg-slate-50 relative">
                     {/* Header */}
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 sm:mb-4 shrink-0 gap-2 sm:gap-3">
-                        <div className="flex items-center gap-2 sm:gap-3">
+                    <div className="flex flex-wrap lg:flex-nowrap justify-between items-start lg:items-center mb-3 sm:mb-4 shrink-0 gap-3">
+                        <div className="flex items-center gap-2 sm:gap-3 w-full lg:w-auto mb-1 lg:mb-0">
                             <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-slate-800 tracking-tight">
                                 Ammonia Water Recovery Dashboard
                             </h1>
                         </div>
                         
-                        {/* Adjusted container for tabs and reset button to stack nicely on mobile */}
-                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto justify-between sm:justify-end">
-                            <div className="flex bg-slate-200 rounded-lg p-1 w-full sm:w-auto overflow-x-auto custom-scrollbar shrink-0">
+                        {/* Controls Container */}
+                        <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 sm:gap-3 w-full lg:w-auto justify-between lg:justify-end">
+                            
+                            {/* Tabs */}
+                            <div className="flex bg-slate-200 rounded-lg p-1 w-full sm:w-auto overflow-x-auto custom-scrollbar shrink-0 order-2 sm:order-1">
                                 <button 
                                     onClick={() => setDashboardView('economics')}
-                                    className={`whitespace-nowrap flex-1 sm:flex-none px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs font-bold rounded-md transition-all ${dashboardView === 'economics' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                    className={`whitespace-nowrap flex-1 sm:flex-none px-2 sm:px-3 py-1.5 sm:py-1.5 text-[10px] sm:text-xs font-bold rounded-md transition-all ${dashboardView === 'economics' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                                 >
                                     Techno-Economic
                                 </button>
                                 <button 
                                     onClick={() => setDashboardView('sensitivity')}
-                                    className={`whitespace-nowrap flex-1 sm:flex-none px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs font-bold rounded-md transition-all flex items-center justify-center gap-1 sm:gap-2 ${dashboardView === 'sensitivity' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                    className={`whitespace-nowrap flex-1 sm:flex-none px-2 sm:px-3 py-1.5 sm:py-1.5 text-[10px] sm:text-xs font-bold rounded-md transition-all flex items-center justify-center gap-1 sm:gap-2 ${dashboardView === 'sensitivity' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                                 >
                                     Sensitivity
                                 </button>
                                 <button 
                                     onClick={() => setDashboardView('esg')}
-                                    className={`whitespace-nowrap flex-1 sm:flex-none px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs font-bold rounded-md transition-all flex items-center justify-center gap-1 sm:gap-2 ${dashboardView === 'esg' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                    className={`whitespace-nowrap flex-1 sm:flex-none px-2 sm:px-3 py-1.5 sm:py-1.5 text-[10px] sm:text-xs font-bold rounded-md transition-all flex items-center justify-center gap-1 sm:gap-2 ${dashboardView === 'esg' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                                 >
                                     Strategic & ESG
                                 </button>
                             </div>
 
-                            <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                            {/* Action Buttons Group */}
+                            <div className="flex items-center gap-2 w-full sm:w-auto order-1 sm:order-2">
                                 <button
                                     onClick={() => setShowProcessFlow(!showProcessFlow)}
                                     className={`flex-1 sm:flex-none text-[10px] sm:text-xs font-bold px-3 py-2 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 border ${showProcessFlow ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'}`}
                                 >
                                     <i data-lucide="map" className="w-4 h-4"></i>
-                                    <span className="inline">Block Flow Diagram</span>
+                                    <span className="hidden sm:inline">Block Flow Diagram</span>
+                                    <span className="inline sm:hidden">BFD</span>
+                                </button>
+
+                                {/* Snapshot Button */}
+                                <button
+                                    onClick={handleSnapshotToggle}
+                                    className={`flex-1 sm:flex-none text-[10px] sm:text-xs font-bold px-3 py-2 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 border ${snapshotParams ? 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200' : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'}`}
+                                    title={snapshotParams ? "Clear Comparison Snapshot" : "Lock Current Scenario for Comparison"}
+                                >
+                                    {snapshotParams ? <i data-lucide="x" className="w-4 h-4"></i> : <i data-lucide="camera" className="w-4 h-4"></i>}
+                                    <span className="inline">{snapshotParams ? 'Clear Snap' : 'Snapshot'}</span>
                                 </button>
 
                                 <button 
@@ -711,8 +824,7 @@
                                     className="flex-none text-[10px] sm:text-xs bg-white border border-slate-300 text-slate-600 hover:border-red-300 hover:text-red-600 font-bold px-3 py-2 sm:px-3 sm:py-2 rounded-lg shadow-sm transition-all flex items-center justify-center gap-1 sm:gap-2 shrink-0"
                                     title="Reset Parameters"
                                 >
-                                    <i data-lucide="rotate-ccw" className="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
-                                    <span className="hidden sm:inline">Reset</span>
+                                    <i data-lucide="rotate-ccw" className="w-4 h-4"></i>
                                 </button>
                             </div>
                         </div>
@@ -725,7 +837,7 @@
                     <div className="flex flex-col md:flex-row gap-3 sm:gap-4 flex-1 min-h-[800px] md:min-h-0">
                         
                         {/* LEFT: Controls */}
-                        <div className="md:w-[35%] lg:w-1/3 flex flex-col h-[400px] md:h-full">
+                        <div className="md:w-[35%] lg:w-1/3 flex flex-col h-[400px] md:h-full order-2 md:order-1">
                             <Card className="flex flex-col h-full p-0 overflow-hidden">
                                 <div className="flex bg-slate-100 border-b border-slate-200 p-1 shrink-0">
                                     {['high', 'medium', 'low'].map(level => (
@@ -738,7 +850,7 @@
                                                 : 'text-slate-500 hover:text-slate-700'
                                             }`}
                                         >
-                                            {level}
+                                            {level} Input
                                         </button>
                                     ))}
                                 </div>
@@ -753,11 +865,11 @@
                         </div>
 
                         {/* RIGHT: Chart */}
-                        <div className="md:w-[65%] lg:w-2/3 flex flex-col h-[400px] md:h-full pb-4 md:pb-0">
+                        <div className="md:w-[65%] lg:w-2/3 flex flex-col h-[400px] md:h-full pb-4 md:pb-0 order-1 md:order-2">
                             <Card className="flex flex-col h-full">
                                 <div className="flex justify-between items-center mb-2 shrink-0">
                                     <h3 className="font-semibold text-slate-800 text-xs sm:text-sm">
-                                        {dashboardView === 'economics' ? 'Annual Cost Breakdown' : 
+                                        {dashboardView === 'economics' ? 'Annual Cost Comparison' : 
                                          dashboardView === 'esg' ? 'Cumulative Cash Flow Analysis' : 
                                          'LCOP Sensitivity Analysis (Tornado Chart)'}
                                     </h3>
@@ -766,8 +878,13 @@
                                             <div className="flex items-center gap-1 sm:gap-1.5 text-slate-500">
                                                 <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 bg-blue-500 rounded-sm opacity-90"></span> Current
                                             </div>
+                                            {snapshotResults && (
+                                                <div className="flex items-center gap-1 sm:gap-1.5 text-slate-500">
+                                                    <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 bg-slate-400 rounded-sm opacity-60"></span> Snapshot
+                                                </div>
+                                            )}
                                             <div className="flex items-center gap-1 sm:gap-1.5 text-slate-400">
-                                                <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 border border-slate-400 border-dashed rounded-sm"></span> Baseline
+                                                <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 border border-slate-400 border-dashed rounded-sm"></span> Initial Baseline
                                             </div>
                                         </div>
                                     )}
