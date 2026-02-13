@@ -116,6 +116,7 @@
             if (snapshot === null || snapshot === undefined) return null;
             
             const diff = current - snapshot;
+            // Filter out negligible floating point differences
             if (Math.abs(diff) < 0.001) return null;
 
             // Cost: Lower is better (Green), Higher is worse (Red)
@@ -127,7 +128,8 @@
             let displayDiff = Math.abs(diff);
             if (format === 'currency') {
                 // Approximate for space saving
-                if (displayDiff > 1000) displayDiff = (displayDiff / 1000).toFixed(1) + 'k';
+                if (displayDiff >= 1000000) displayDiff = (displayDiff / 1000000).toFixed(1) + 'M';
+                else if (displayDiff >= 1000) displayDiff = (displayDiff / 1000).toFixed(1) + 'k';
                 else displayDiff = displayDiff.toFixed(1);
             } else {
                 displayDiff = displayDiff.toFixed(1);
@@ -144,6 +146,7 @@
         const KPICard = ({ 
             label, 
             value, 
+            rawValue, // New prop for accurate comparisons
             subtext, 
             highlight = false, 
             children, 
@@ -175,7 +178,7 @@
                         </div>
                         {comparisonValue !== undefined && (
                             <DeltaBadge 
-                                current={parseFloat(value.toString().replace(/[^0-9.-]+/g,""))} 
+                                current={rawValue !== undefined ? rawValue : parseFloat(value.toString().replace(/[^0-9.-]+/g,""))} 
                                 snapshot={comparisonValue} 
                                 type={comparisonType}
                                 format={comparisonFormat}
@@ -679,6 +682,7 @@
                     <KPICard 
                         label="Total Net CAPEX" 
                         value={currentResults.total_hard_capex_net.toLocaleString('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, notation: window.innerWidth < 640 ? "compact" : "standard" })} 
+                        rawValue={currentResults.total_hard_capex_net}
                         tooltipAlign="right"
                         helpText="Total Capital Expenditure minus subsidies."
                         comparisonValue={snapshotResults?.total_hard_capex_net}
@@ -706,6 +710,7 @@
                     <KPICard 
                         label="Total Annual OPEX" 
                         value={currentResults.total_annual_opex.toLocaleString('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, notation: window.innerWidth < 640 ? "compact" : "standard" })} 
+                        rawValue={currentResults.total_annual_opex}
                         tooltipAlign="left"
                         helpText="Includes maintenance, electricity, steam, and chemical costs."
                         comparisonValue={snapshotResults?.total_annual_opex}
@@ -750,6 +755,7 @@
                     <KPICard 
                         label={`NPV (${currentResults.horizon_npv} Yrs)`} 
                         value={currentResults.npv.toLocaleString('en-US', { style: 'currency', currency: 'EUR', notation: "compact" })} 
+                        rawValue={currentResults.npv}
                         highlight={currentResults.npv > 0} 
                         tooltipAlign="left"
                         helpText="Net Present Value over project lifetime."
@@ -807,9 +813,14 @@
                          comparisonSuffix=" kg"
                      >
                          <div className="mt-2 pt-1 border-t border-slate-100">
-                             <div className="flex justify-between items-center mb-1">
-                                <span className="text-[9px] sm:text-[10px] text-slate-500 font-semibold">Grid (gCO2eq/kWh)</span>
-                                <span className="text-[9px] sm:text-[10px] font-mono font-bold text-slate-700">{params.CGrid.toFixed(0)}</span>
+                             <div className="flex justify-between items-end mb-1">
+                                <span className="text-[9px] sm:text-[10px] text-slate-500 font-semibold">Grid Factor (gCO2eq/kWh)</span>
+                                <div className="flex flex-col items-end">
+                                    {snapshotParams && Math.abs(snapshotParams.CGrid - params.CGrid) > 1 && (
+                                         <span className="text-[9px] text-slate-400 font-medium mb-0.5 animate-pulse">Ref: {snapshotParams.CGrid.toFixed(0)}</span>
+                                    )}
+                                    <span className="text-[9px] sm:text-[10px] font-mono font-bold text-slate-700">{params.CGrid.toFixed(0)}</span>
+                                </div>
                              </div>
                              <input 
                                 type="range" min="0" max="1000" step="10"
@@ -921,7 +932,7 @@
                                                 : 'text-slate-500 hover:text-slate-700'
                                             }`}
                                         >
-                                            {level} Input
+                                            {level} Impact
                                         </button>
                                     ))}
                                 </div>
