@@ -97,7 +97,7 @@
                 arrowClass = "left-1/4 -translate-x-1/2 sm:right-auto sm:left-4 sm:-translate-x-1/2";
             } else if (align === 'center') {
                 positionClass = "left-1/2 -translate-x-1/2 sm:right-auto sm:left-1/2 sm:-translate-x-1/2";
-                arrowClass = "left-1/2 -translate-x-1/2 sm:right-auto sm:left-1/2 sm:-translate-x-1/2";
+                arrowClass = "left-1/4 -translate-x-1/2 sm:right-auto sm:left-1/2 sm:-translate-x-1/2";
             }
 
             const isTop = position === 'top';
@@ -419,6 +419,12 @@
                     setSnapshotParams(null);
                 } else {
                     setSnapshotParams({...params});
+                }
+            };
+
+            const handleJumpToSnapshot = () => {
+                if (snapshotParams) {
+                    setParams({...snapshotParams});
                 }
             };
 
@@ -900,6 +906,19 @@
                                     {snapshotParams ? <i data-lucide="x" className="w-4 h-4"></i> : <i data-lucide="camera" className="w-4 h-4"></i>}
                                     <span className="inline">{snapshotParams ? 'Clear Snap' : 'Snapshot'}</span>
                                 </button>
+
+                                {/* Jump to Snapshot Button - Only visible when snapshot exists */}
+                                {snapshotParams && (
+                                    <button
+                                        onClick={handleJumpToSnapshot}
+                                        className="flex-1 sm:flex-none text-[10px] sm:text-xs font-bold px-3 py-2 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 border bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
+                                        title="Restore parameters to Snapshot values"
+                                    >
+                                        <i data-lucide="corner-up-left" className="w-4 h-4"></i>
+                                        <span className="inline sm:hidden md:inline">Jump</span>
+                                        <span className="hidden sm:inline">to Snap</span>
+                                    </button>
+                                )}
 
                                 <button 
                                     onClick={() => setParams(INITIAL_PARAMS)}
