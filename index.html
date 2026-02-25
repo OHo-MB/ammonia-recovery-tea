@@ -1298,7 +1298,10 @@
                     {/* Header */}
                     <div className="flex flex-wrap lg:flex-nowrap justify-between items-start lg:items-center mb-3 sm:mb-4 shrink-0 gap-3">
                         <div className="flex items-center gap-2 sm:gap-3 w-full lg:w-auto mb-1 lg:mb-0">
-                            <img src="./logo.png" alt="Logo" className="h-8 sm:h-10 lg:h-12 w-auto object-contain shrink-0" />
+                            {/* Mobile Logo (Square-like, visible only on very small screens) */}
+                            <img src="./logo_mobile.png" alt="Logo" className="block sm:hidden h-8 w-8 object-contain shrink-0" />
+                            {/* Desktop Logo (Wider, visible on tablets and desktops) */}
+                            <img src="./logo.png" alt="Logo" className="hidden sm:block sm:h-10 lg:h-12 w-auto object-contain shrink-0" />
                             <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-slate-800 tracking-tight">
                                 Ammonia Water Recovery Dashboard
                             </h1>
