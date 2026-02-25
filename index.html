@@ -41,9 +41,40 @@
             width: 100%;
             height: 5px;
             cursor: pointer;
-            background: transparent; /* Changed to transparent for custom visual track */
+            background: transparent;
             border-radius: 3px;
         }
+        
+        /* Multi-slider styling for Risk PERT */
+        .multi-slider-container {
+            position: relative;
+            width: 100%;
+            height: 24px;
+            display: flex;
+            align-items: center;
+        }
+        .multi-slider-input {
+            position: absolute;
+            width: 100%;
+            top: 50%;
+            transform: translateY(-50%);
+            -webkit-appearance: none;
+            background: transparent;
+            pointer-events: none;
+        }
+        .multi-slider-input::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            pointer-events: auto;
+            border-radius: 50%;
+            border: 2px solid white;
+            cursor: pointer;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+            margin-top: 0;
+        }
+        .thumb-min::-webkit-slider-thumb { background: #3b82f6; height: 14px; width: 14px; z-index: 30; }
+        .thumb-mode::-webkit-slider-thumb { background: #0f172a; height: 18px; width: 18px; z-index: 40; }
+        .thumb-max::-webkit-slider-thumb { background: #ef4444; height: 14px; width: 14px; z-index: 20; }
+
         .custom-number-input::-webkit-inner-spin-button, 
         .custom-number-input::-webkit-outer-spin-button { 
             -webkit-appearance: none; 
@@ -79,6 +110,67 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, useMemo } = React;
 
+        // --- STATISTICAL MATH FUNCTIONS FOR MONTE CARLO ---
+        const randn_bm = () => {
+            let u = 0, v = 0;
+            while(u === 0) u = Math.random();
+            while(v === 0) v = Math.random();
+            return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+        };
+
+        const rGamma = (alpha) => {
+            if (alpha < 1) return rGamma(alpha + 1) * Math.pow(Math.random(), 1 / alpha);
+            const d = alpha - 1 / 3;
+            const c = 1 / Math.sqrt(9 * d);
+            while (true) {
+                let x = randn_bm();
+                let v = Math.pow(1 + c * x, 3);
+                if (v <= 0) continue;
+                let u = Math.random();
+                if (u < 1 - 0.0331 * Math.pow(x, 4)) return d * v;
+                if (Math.log(u) < 0.5 * Math.pow(x, 2) + d * (1 - v + Math.log(v))) return d * v;
+            }
+        };
+
+        const rBeta = (a, b) => {
+            const x = rGamma(a);
+            const y = rGamma(b);
+            return x / (x + y);
+        };
+
+        const rPERT = (min, mode, max) => {
+            if (min >= max) return mode;
+            if (mode <= min || mode >= max) return mode;
+            const a = 1 + 4 * ((mode - min) / (max - min));
+            const b = 1 + 4 * ((max - mode) / (max - min));
+            return min + rBeta(a, b) * (max - min);
+        };
+
+        const rLogNorm = (mean, volString) => {
+            const volMap = { Low: 0.10, Medium: 0.20, High: 0.40 };
+            const cv = volMap[volString] || 0.20;
+            const varReal = Math.pow(mean * cv, 2);
+            const sigma2 = Math.log(1 + varReal / Math.pow(mean, 2));
+            const mu = Math.log(mean) - sigma2 / 2;
+            return Math.exp(mu + Math.sqrt(sigma2) * randn_bm());
+        };
+
+        // --- SAFE LUCIDE ICON WRAPPER ---
+        const LucideIcon = ({ name, className = "" }) => {
+            const spanRef = useRef(null);
+            useEffect(() => {
+                if (spanRef.current && window.lucide) {
+                    spanRef.current.innerHTML = `<i data-lucide="${name}"></i>`;
+                    window.lucide.createIcons({
+                        root: spanRef.current,
+                        attrs: { class: className }
+                    });
+                }
+            }, [name, className]);
+            return <span ref={spanRef} className="contents" />;
+        };
+
+        // --- COMPONENTS ---
         const Card = ({ children, className = "" }) => (
             <div className={`bg-white rounded-lg shadow-sm border border-slate-200 p-3 md:p-4 ${className}`}>
                 {children}
@@ -116,18 +208,14 @@
             if (snapshot === null || snapshot === undefined) return null;
             
             const diff = current - snapshot;
-            // Filter out negligible floating point differences
             if (Math.abs(diff) < 0.001) return null;
 
-            // Cost: Lower is better (Green), Higher is worse (Red)
-            // Value: Higher is better (Green), Lower is worse (Red)
             let isGood = type === 'cost' ? diff < 0 : diff > 0;
             const colorClass = isGood ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-rose-600 bg-rose-50 border-rose-100';
             const arrow = diff > 0 ? '▲' : '▼';
             
             let displayDiff = Math.abs(diff);
             if (format === 'currency') {
-                // Approximate for space saving
                 if (displayDiff >= 1000000) displayDiff = (displayDiff / 1000000).toFixed(1) + 'M';
                 else if (displayDiff >= 1000) displayDiff = (displayDiff / 1000).toFixed(1) + 'k';
                 else displayDiff = displayDiff.toFixed(1);
@@ -143,31 +231,15 @@
             );
         };
 
-        const KPICard = ({ 
-            label, 
-            value, 
-            rawValue, // New prop for accurate comparisons
-            subtext, 
-            highlight = false, 
-            children, 
-            compact = false, 
-            icon: Icon, 
-            helpText, 
-            tooltipAlign = 'default', 
-            tooltipPosition = 'bottom', 
-            comparisonValue, 
-            comparisonType = 'cost',
-            comparisonFormat = 'currency',
-            comparisonSuffix = ''
-        }) => (
-            <div className={`bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col justify-between ${compact ? 'p-2 sm:p-3' : 'p-3 sm:p-4'} h-full min-h-[110px] sm:min-h-[130px] relative tooltip-trigger`}>
+        const KPICard = ({ label, value, rawValue, subtext, highlight = false, children, compact = false, icon: Icon, helpText, tooltipAlign = 'default', tooltipPosition = 'bottom', comparisonValue, comparisonType = 'cost', comparisonFormat = 'currency', comparisonSuffix = '', className="" }) => (
+            <div className={`bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col justify-between ${compact ? 'p-2 sm:p-3' : 'p-3 sm:p-4'} h-full min-h-[110px] sm:min-h-[130px] relative tooltip-trigger ${className}`}>
                 <div>
                     <div className="flex justify-between items-start">
-                        <div className="text-slate-500 text-[9px] sm:text-[10px] md:text-xs font-bold uppercase tracking-wider mb-1 truncate pr-2 leading-tight">{label}</div>
+                        <div className="text-slate-500 text-[9px] sm:text-[10px] md:text-xs font-bold uppercase tracking-wider mb-1 pr-2 leading-tight">{label}</div>
                         {Icon && <Icon size={16} className="text-slate-400 shrink-0 hidden sm:block" />}
                         {helpText && (
                              <div className="absolute top-2 right-2 sm:top-3 sm:right-3 text-slate-300 hover:text-slate-500 cursor-help z-10">
-                                <i data-lucide="circle-help" className="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
+                                <LucideIcon name="circle-help" className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                                 <Tooltip text={helpText} align={tooltipAlign} position={tooltipPosition} />
                              </div>
                         )}
@@ -177,13 +249,7 @@
                             {value}
                         </div>
                         {comparisonValue !== undefined && (
-                            <DeltaBadge 
-                                current={rawValue !== undefined ? rawValue : parseFloat(value.toString().replace(/[^0-9.-]+/g,""))} 
-                                snapshot={comparisonValue} 
-                                type={comparisonType}
-                                format={comparisonFormat}
-                                suffix={comparisonSuffix}
-                            />
+                            <DeltaBadge current={rawValue !== undefined ? rawValue : parseFloat(value.toString().replace(/[^0-9.-]+/g,""))} snapshot={comparisonValue} type={comparisonType} format={comparisonFormat} suffix={comparisonSuffix} />
                         )}
                     </div>
                 </div>
@@ -197,21 +263,10 @@
         const SliderInput = ({ label, value, snapshotValue, unit, min, max, step, onChange, help, scale = 1, decimals }) => {
             const displayValue = (value * scale);
             const displaySnapshotValue = snapshotValue !== undefined ? (snapshotValue * scale) : undefined;
-            
-            const handleInputChange = (e) => {
-                const val = parseFloat(e.target.value);
-                if (!isNaN(val)) onChange(val / scale);
-            };
-
             const precision = decimals !== undefined ? decimals : (scale > 1 ? 1 : step < 0.1 ? 3 : 2);
-            
-            // Snapshot Logic
             const hasSnapshot = displaySnapshotValue !== undefined;
-            // Fixed calculation: remove scale factor from min/max since min/max are already in display units
             const getPercent = (val) => ((val - min) / (max - min)) * 100;
             const snapPercent = hasSnapshot ? Math.min(Math.max(getPercent(displaySnapshotValue), 0), 100) : 0;
-            
-            // Check if value differs enough to show text
             const isDiff = hasSnapshot && Math.abs(displaySnapshotValue - displayValue) > (step * 0.1); 
 
             return (
@@ -219,16 +274,9 @@
                     <div className="flex justify-between items-end mb-1 sm:mb-0.5">
                         <label className="text-[11px] sm:text-xs font-bold text-slate-800 truncate pr-2 max-w-[60%]" title={help}>{label}</label>
                         <div className="flex flex-col items-end">
-                            {isDiff && (
-                                <span className="text-[9px] text-slate-500 font-medium mb-0.5 animate-pulse">
-                                    Ref: {displaySnapshotValue.toFixed(precision)}
-                                </span>
-                            )}
+                            {isDiff && <span className="text-[9px] text-slate-500 font-medium mb-0.5 animate-pulse">Ref: {displaySnapshotValue.toFixed(precision)}</span>}
                             <div className="flex items-center shrink-0">
-                                <input
-                                    type="number"
-                                    value={displayValue.toFixed(precision)}
-                                    onChange={handleInputChange}
+                                <input type="number" value={displayValue.toFixed(precision)} onChange={(e) => { const val = parseFloat(e.target.value); if (!isNaN(val)) onChange(val / scale); }}
                                     className={`custom-number-input w-16 sm:w-20 text-right text-[11px] sm:text-xs font-normal font-mono text-slate-900 bg-slate-50 border rounded px-1 py-0.5 focus:outline-none focus:border-orange-500 transition-colors ${isDiff ? 'border-blue-300 ring-1 ring-blue-100' : 'border-slate-200'}`}
                                 />
                                 <span className="ml-1 text-[9px] sm:text-[10px] text-slate-500 w-5 sm:w-6 font-medium">{unit}</span>
@@ -236,30 +284,210 @@
                         </div>
                     </div>
                     <div className="py-1 relative w-full h-5 flex items-center group">
-                        {/* Custom Visual Track (Background) */}
                         <div className="absolute w-full h-[5px] bg-slate-200 rounded-full"></div>
-
-                        {/* Snapshot Marker */}
                         {hasSnapshot && (
-                            <div 
-                                className="absolute top-1/2 -translate-y-1/2 w-1.5 h-3.5 bg-slate-500 z-10 pointer-events-none rounded-sm transition-all duration-500 opacity-60"
-                                style={{ left: `calc(${snapPercent}% - 3px)` }}
-                                title={`Snapshot: ${displaySnapshotValue.toFixed(precision)}`}
-                            ></div>
+                            <div className="absolute top-1/2 -translate-y-1/2 w-1.5 h-3.5 bg-slate-500 z-10 pointer-events-none rounded-sm transition-all duration-500 opacity-60"
+                                style={{ left: `calc(${snapPercent}% - 3px)` }} title={`Snapshot: ${displaySnapshotValue.toFixed(precision)}`}></div>
                         )}
-
-                        {/* Input Range (Foreground) */}
-                        <input
-                            type="range"
-                            min={min} max={max} step={step}
-                            value={displayValue} 
-                            onChange={handleInputChange}
-                            className="relative z-20 w-full"
-                        />
+                        <input type="range" min={min} max={max} step={step} value={displayValue} onChange={(e) => { const val = parseFloat(e.target.value); if (!isNaN(val)) onChange(val / scale); }} className="relative z-20 w-full" />
                     </div>
                 </div>
             );
         };
+
+        // --- CUSTOM COMPONENTS FOR MONTE CARLO RISK ---
+        
+        const PertVisualization = ({ min, mode, max, minBound, maxBound, isFixed }) => {
+            const points = 60;
+            const h = 45; 
+            
+            const safeMin = Math.max(minBound, min);
+            const safeMax = Math.min(maxBound, Math.max(min + 0.001, max));
+            const safeMode = isFixed 
+                ? Math.min(Math.max(mode, minBound), maxBound) 
+                : Math.min(Math.max(mode, safeMin), safeMax);
+                
+            const getSvgX = (val) => ((val - minBound) / (maxBound - minBound)) * 100;
+            
+            let fillPath = "";
+            let strokePath = "";
+
+            if (isFixed) {
+                const modeX = getSvgX(safeMode);
+                const w = 2.5; 
+                fillPath = `M ${modeX - w} ${h} C ${modeX - w*0.5} ${h}, ${modeX - w*0.4} 2, ${modeX} 2 C ${modeX + w*0.4} 2, ${modeX + w*0.5} ${h}, ${modeX + w} ${h} Z`;
+                strokePath = `M ${modeX - w} ${h} C ${modeX - w*0.5} ${h}, ${modeX - w*0.4} 2, ${modeX} 2 C ${modeX + w*0.4} 2, ${modeX + w*0.5} ${h}, ${modeX + w} ${h}`;
+            } else {
+                const range = Math.max(safeMax - safeMin, 0.001);
+                const alpha = 1 + 4 * ((safeMode - safeMin) / range);
+                const betaParam = 1 + 4 * ((safeMax - safeMode) / range);
+                
+                let maxVal = 0;
+                const vals = [];
+                for(let i=0; i<=points; i++) {
+                    const x = safeMin + (i/points) * range;
+                    const normX = (x - safeMin) / range;
+                    let y = Math.pow(normX, alpha - 1) * Math.pow(1 - normX, betaParam - 1);
+                    if (isNaN(y) || !isFinite(y)) y = 0;
+                    vals.push({x, y});
+                    if (y > maxVal) maxVal = y;
+                }
+                
+                if (maxVal === 0) maxVal = 1;
+                
+                fillPath = `M ${getSvgX(safeMin)} ${h} ` + vals.map(v => `L ${getSvgX(v.x)} ${h - (v.y/maxVal)*(h-2)}`).join(' ') + ` L ${getSvgX(safeMax)} ${h} Z`;
+                strokePath = `M ${getSvgX(safeMin)} ${h} ` + vals.map(v => `L ${getSvgX(v.x)} ${h - (v.y/maxVal)*(h-2)}`).join(' ');
+            }
+
+            return (
+                <svg viewBox={`0 0 100 ${h}`} width="100%" height={`${h}px`} className="overflow-visible absolute bottom-0 left-0 pointer-events-none z-0" preserveAspectRatio="none">
+                    <defs>
+                        <linearGradient id="pertGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="rgba(147, 51, 234, 0.5)" />
+                            <stop offset="100%" stopColor="rgba(147, 51, 234, 0.0)" />
+                        </linearGradient>
+                    </defs>
+                    <path d={fillPath} fill="url(#pertGrad)" />
+                    <path d={strokePath} fill="none" stroke="rgba(147, 51, 234, 0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                </svg>
+            );
+        };
+
+        const RiskSliderPERT = ({ label, minBound, maxBound, min, mode, max, onChange, unit, scale = 1, decimals, isFixed, onToggleFixed, onDragStart }) => {
+            const dec = decimals !== undefined ? decimals : 1;
+            
+            const handleMin = (val) => { 
+                const clamped = Math.min(Math.max(val, minBound), maxBound);
+                onChange({ min: Math.min(clamped, mode), max }); 
+            };
+            const handleMode = (val) => { 
+                let clamped = Math.min(Math.max(val, minBound), maxBound);
+                if (!isFixed) {
+                    clamped = Math.min(Math.max(clamped, min), max);
+                }
+                onChange({ mode: clamped }); 
+            };
+            const handleMax = (val) => { 
+                const clamped = Math.min(Math.max(val, minBound), maxBound);
+                onChange({ min, max: Math.max(clamped, mode) }); 
+            };
+            
+            return (
+                <div className={`mb-4 p-3 rounded-lg border shadow-sm relative overflow-visible transition-colors ${isFixed ? 'bg-indigo-50/40 border-indigo-200' : 'bg-white border-slate-200'}`}>
+                    <div className="flex justify-between items-center mb-1 relative z-10">
+                        <label className={`text-[11px] sm:text-xs font-bold ${isFixed ? 'text-indigo-900' : 'text-slate-800'}`}>{label}</label>
+                        <div className="flex items-center gap-2">
+                            <span className="text-[9px] font-medium text-slate-500 bg-white px-1.5 py-0.5 rounded border border-slate-200">{unit}</span>
+                            <button onClick={onToggleFixed} className={`text-[8px] px-2 py-0.5 rounded font-bold uppercase tracking-wider transition-colors border ${isFixed ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'}`}>
+                                {isFixed ? 'Fixed' : 'Modeled'}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-between text-[10px] text-slate-500 mb-2 relative z-10 gap-1 sm:gap-2">
+                        {!isFixed && (
+                            <div className="flex items-center bg-white px-1 py-0.5 rounded border border-blue-200 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-100 shadow-sm transition-colors flex-1">
+                                <span className="text-blue-600 font-semibold mr-0.5">Min:</span>
+                                <input type="number" value={(min * scale).toFixed(dec)} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) handleMin(v / scale); }} className="w-full min-w-0 bg-transparent text-right text-slate-700 outline-none font-mono custom-number-input" />
+                            </div>
+                        )}
+                        <div className={`flex items-center bg-white px-1 py-0.5 rounded border shadow-sm transition-colors ${isFixed ? 'w-1/2 mx-auto border-indigo-400 focus-within:ring-1 focus-within:ring-indigo-300' : 'flex-1 border-slate-300 focus-within:border-slate-500 focus-within:ring-1 focus-within:ring-slate-200'}`}>
+                            <span className={`${isFixed ? 'text-indigo-800' : 'text-slate-800'} font-bold mr-0.5`}>{isFixed ? 'Value:' : 'Mod:'}</span>
+                            <input type="number" value={(mode * scale).toFixed(dec)} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) handleMode(v / scale); }} className="w-full min-w-0 bg-transparent text-right text-slate-900 font-bold outline-none font-mono custom-number-input" />
+                        </div>
+                        {!isFixed && (
+                            <div className="flex items-center bg-white px-1 py-0.5 rounded border border-rose-200 focus-within:border-rose-400 focus-within:ring-1 focus-within:ring-rose-100 shadow-sm transition-colors flex-1">
+                                <span className="text-rose-600 font-semibold mr-0.5">Max:</span>
+                                <input type="number" value={(max * scale).toFixed(dec)} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) handleMax(v / scale); }} className="w-full min-w-0 bg-transparent text-right text-slate-700 outline-none font-mono custom-number-input" />
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="relative mt-10 mb-1">
+                        <div className="absolute bottom-[12px] left-[9px] right-[9px] h-[45px] pointer-events-none">
+                             <PertVisualization min={min} mode={mode} max={max} minBound={minBound} maxBound={maxBound} isFixed={isFixed} />
+                        </div>
+
+                        <div className="multi-slider-container relative z-10">
+                            <div className="absolute w-full h-[5px] bg-slate-200/50 rounded-full border border-slate-300"></div>
+                            {!isFixed && <input type="range" min={minBound} max={maxBound} step={(maxBound-minBound)/100} value={min} onChange={(e) => handleMin(Number(e.target.value))} className="multi-slider-input thumb-min" onPointerDown={onDragStart} onTouchStart={onDragStart} />}
+                            {!isFixed && <input type="range" min={minBound} max={maxBound} step={(maxBound-minBound)/100} value={max} onChange={(e) => handleMax(Number(e.target.value))} className="multi-slider-input thumb-max" onPointerDown={onDragStart} onTouchStart={onDragStart} />}
+                            <input type="range" min={minBound} max={maxBound} step={(maxBound-minBound)/100} value={mode} onChange={(e) => handleMode(Number(e.target.value))} className="multi-slider-input thumb-mode" style={isFixed ? { zIndex: 40 } : {}} onPointerDown={onDragStart} onTouchStart={onDragStart} />
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const RiskDropdownLogNorm = ({ label, mode, volatility, onVolChange, onModeChange, unit, isFixed, onToggleFixed }) => (
+            <div className={`mb-3 p-3 rounded-lg border shadow-sm transition-colors ${isFixed ? 'bg-indigo-50/40 border-indigo-200' : 'bg-white border-slate-200'}`}>
+                <div className="flex justify-between items-center mb-2">
+                    <label className={`text-[11px] sm:text-xs font-bold ${isFixed ? 'text-indigo-900' : 'text-slate-800'}`}>{label}</label>
+                    <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-medium text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-200">{unit}</span>
+                        <button onClick={onToggleFixed} className={`text-[8px] px-2 py-0.5 rounded font-bold uppercase tracking-wider transition-colors border ${isFixed ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'}`}>
+                            {isFixed ? 'Fixed' : 'Modeled'}
+                        </button>
+                    </div>
+                </div>
+
+                {isFixed ? (
+                    <div className="flex items-center bg-white px-2 py-1.5 rounded border border-indigo-400 focus-within:ring-1 focus-within:ring-indigo-300 shadow-sm transition-colors w-1/2 mx-auto">
+                        <span className="text-indigo-800 font-bold mr-2 text-xs">Value:</span>
+                        <input type="number" value={mode} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) onModeChange(v); }} className="w-full bg-transparent text-right text-slate-900 font-bold outline-none font-mono custom-number-input" />
+                    </div>
+                ) : (
+                    <div className="flex justify-between items-center gap-2">
+                        <div className="flex items-center bg-white px-2 py-1 rounded border border-slate-300 focus-within:border-slate-500 shadow-sm transition-colors w-1/2">
+                            <span className="text-slate-500 font-bold mr-1 text-[10px]">Mean:</span>
+                            <input type="number" value={mode} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) onModeChange(v); }} className="w-full bg-transparent text-right text-slate-900 font-bold outline-none font-mono text-[11px] custom-number-input" />
+                        </div>
+                        <div className="flex flex-col items-end w-1/2">
+                            <select value={volatility} onChange={e => onVolChange(e.target.value)} className="text-[10px] w-full border border-slate-300 rounded px-1 py-1 bg-slate-50 focus:outline-none focus:border-purple-500 text-slate-700 font-medium cursor-pointer shadow-sm">
+                                <option value="Low">Low (10% CV)</option>
+                                <option value="Medium">Medium (20% CV)</option>
+                                <option value="High">High (40% CV)</option>
+                            </select>
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+
+        const RiskDropdownDiscrete = ({ label, mode, riskLevel, onRiskChange, onModeChange, unit, isFixed, onToggleFixed }) => (
+            <div className={`mb-3 p-3 rounded-lg border shadow-sm transition-colors ${isFixed ? 'bg-indigo-50/40 border-indigo-200' : 'bg-white border-slate-200'}`}>
+                <div className="flex justify-between items-center mb-2">
+                    <label className={`text-[11px] sm:text-xs font-bold ${isFixed ? 'text-indigo-900' : 'text-slate-800'}`}>{label}</label>
+                    <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-medium text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-200">{unit}</span>
+                        <button onClick={onToggleFixed} className={`text-[8px] px-2 py-0.5 rounded font-bold uppercase tracking-wider transition-colors border ${isFixed ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'}`}>
+                            {isFixed ? 'Fixed' : 'Modeled'}
+                        </button>
+                    </div>
+                </div>
+
+                {isFixed ? (
+                    <div className="flex items-center bg-white px-2 py-1.5 rounded border border-indigo-400 focus-within:ring-1 focus-within:ring-indigo-300 shadow-sm transition-colors w-1/2 mx-auto">
+                        <span className="text-indigo-800 font-bold mr-2 text-xs">Value:</span>
+                        <input type="number" value={mode} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) onModeChange(v); }} className="w-full bg-transparent text-right text-slate-900 font-bold outline-none font-mono custom-number-input" />
+                    </div>
+                ) : (
+                    <div className="flex justify-between items-center gap-2">
+                        <div className="flex items-center bg-white px-2 py-1 rounded border border-slate-300 focus-within:border-slate-500 shadow-sm transition-colors w-1/2">
+                            <span className="text-slate-500 font-bold mr-1 text-[10px]">Base:</span>
+                            <input type="number" value={mode} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) onModeChange(v); }} className="w-full bg-transparent text-right text-slate-900 font-bold outline-none font-mono text-[11px] custom-number-input" />
+                        </div>
+                        <div className="flex flex-col items-end w-1/2">
+                            <select value={riskLevel} onChange={e => onRiskChange(e.target.value)} className="text-[10px] w-full border border-slate-300 rounded px-1 py-1 bg-slate-50 focus:outline-none focus:border-purple-500 text-slate-700 font-medium cursor-pointer shadow-sm">
+                                <option value="Low">Low Risk</option>
+                                <option value="Standard">Std Risk</option>
+                                <option value="High">High Risk</option>
+                            </select>
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
 
         const SLIDER_CONFIG = {
             high: [
@@ -268,15 +496,15 @@
                 { id: 'C16', label: 'Lifetime (Years)', unit: 'yr', min: 5, max: 20, step: 1, decimals: 0 },
                 { id: 'C41', label: 'CAPEX EDBM', unit: '€', min: 1000000, max: 2000000, step: 10000, decimals: 0 },
                 { id: 'C69', label: 'Nitrogen Discharge Fee', unit: '€/kg N', min: 1, max: 2, step: 0.1, decimals: 1 },
-                { id: 'C54', label: 'Steam Cost', unit: '€/t', min: 25, max: 100, step: 1, decimals: 0 },
+                { id: 'C54', label: 'Steam Cost', unit: '€/t', min: 25, max: 200, step: 1, decimals: 0 },
                 { id: 'C53', label: 'Steam Ratio in Stripper', unit: 'stm/liq', min: 0.15, max: 0.20, step: 0.001, decimals: 3 },
                 { id: 'C15', label: 'WACC', unit: '%', min: 0, max: 15, step: 0.1, scale: 100, decimals: 1 },
             ],
             medium: [
-                { id: 'C20', label: 'CAPEX Aux. Works', unit: '€', min: 500000, max: 1500000, step: 10000, decimals: 0 },
-                { id: 'C27', label: 'RO Specific Energy', unit: 'kWh/m³', min: 0.75, max: 2, step: 0.05, decimals: 2 },
+                { id: 'C20', label: 'CAPEX Aux. Works', unit: '€', min: 250000, max: 1500000, step: 10000, decimals: 0 },
+                { id: 'C27', label: 'RO Specific Energy', unit: 'kWh/m³', min: 0.75, max: 2.25, step: 0.05, decimals: 2 },
                 { id: 'C7',  label: 'Maint. Factor (CAPEX)', unit: '%', min: 2, max: 5, step: 0.1, scale: 100, decimals: 1 },
-                { id: 'C66', label: 'Water Discharge Fee', unit: '€/m³', min: 0, max: 0.5, step: 0.01, decimals: 2 },
+                { id: 'C66', label: 'Water Discharge Fee', unit: '€/m³', min: 0, max: 0.02, step: 0.001, decimals: 3 },
                 { id: 'C49', label: 'CAPEX Stripper', unit: '€', min: 250000, max: 1000000, step: 10000, decimals: 0 },
             ],
             low: [
@@ -289,13 +517,13 @@
         };
 
         const INITIAL_PARAMS = {
-            C3: 0.00,  C7: 0.03,  C14: 0.17, C15: 0.08, C16: 15,   C17: 130,  C18: 7920, C20: 1000000,
+            C3: 0.00,  C7: 0.03,  C14: 0.17, C15: 0.08, C16: 15,   C17: 130,  C18: 7920, C20: 750000,
             C24: 15,   C25: 250000, C26: 69.77, C27: 1.75,
             C32: 15,   C33: 40000, C34: 6.93,  C35: 0.15,
             C40: 15,   C41: 1650000, C42: 31.4,  C43: 12,
-            C48: 15,   C49: 375000, C50: 0.17,  C51: 0.35, C52: 4711, C53: 0.165, C54: 35,
+            C48: 15,   C49: 375000, C50: 0.17,  C51: 0.35, C52: 4711, C53: 0.175, C54: 85,
             C58: 0.075, C60: 2.81,  C61: 160,   C62: 0.7,   C63: 485,
-            C65: 62.85, C66: 0.2,   C68: 25.34, C69: 1.2,
+            C65: 62.85, C66: 0.004, C68: 25.34, C69: 1.2,
             CGrid: 400, RefPrice: 390
         };
 
@@ -304,14 +532,53 @@
             const [activeTab, setActiveTab] = useState('high'); 
             const [dashboardView, setDashboardView] = useState('economics'); 
             const [showProcessFlow, setShowProcessFlow] = useState(false);
+            const [showMonteCarlo, setShowMonteCarlo] = useState(false);
             const [snapshotParams, setSnapshotParams] = useState(null);
+            
+            const [imageError, setImageError] = useState(false);
+            const [mcResults, setMcResults] = useState(null);
+            const [isSimulating, setIsSimulating] = useState(false);
+            const [mcIterations, setMcIterations] = useState(10000);
+            const [mcTrigger, setMcTrigger] = useState(0);
+            const [isDragging, setIsDragging] = useState(false);
+            const [showMcInfo, setShowMcInfo] = useState(false);
+
+            // Globální event listener pro odchycení uvolnění myši/displeje kdekoli na obrazovce
+            useEffect(() => {
+                const handleUp = () => setIsDragging(false);
+                window.addEventListener('pointerup', handleUp);
+                window.addEventListener('touchend', handleUp);
+                return () => {
+                    window.removeEventListener('pointerup', handleUp);
+                    window.removeEventListener('touchend', handleUp);
+                };
+            }, []);
+
+            const [riskConfig, setRiskConfig] = useState({
+                C43: { min: 8.0, max: 18.0, isFixed: false },
+                C27: { min: 1.25, max: 2.0, isFixed: false },
+                C53: { min: 0.165, max: 0.185, isFixed: false },
+                C54: { min: 25, max: 200, isFixed: false },
+                C7:  { min: 0.02, max: 0.10, isFixed: false },
+                C16: { min: 10, max: 20, isFixed: false },
+                C15: { min: 0.05, max: 0.10, isFixed: false },
+                C41: { min: 1269000, max: 3426000, isFixed: false },
+                C20: { min: 250000, max: 1500000, isFixed: false },
+                C25: { min: 212500, max: 350000, isFixed: false },
+                C33: { min: 34000, max: 56000, isFixed: false },
+                C49: { min: 318750, max: 525000, isFixed: false },
+                C17: { vol: 'High', isFixed: false },
+                C61: { vol: 'High', isFixed: false },
+                C63: { vol: 'High', isFixed: false },
+                RefPrice: { vol: 'Medium', isFixed: false },
+                C69: { risk: 'Standard', isFixed: false },
+                C66: { risk: 'Standard', isFixed: false }
+            });
 
             const chartRef = useRef(null);
             const chartInstance = useRef(null);
-
-            useEffect(() => {
-                if (window.lucide) window.lucide.createIcons();
-            });
+            const mcChartRef = useRef(null);
+            const mcChartInstance = useRef(null);
 
             const calculateResults = (p) => {
                 const annuity = (r, n) => {
@@ -414,6 +681,90 @@
             const referenceResults = useMemo(() => calculateResults(INITIAL_PARAMS), []);
             const snapshotResults = useMemo(() => snapshotParams ? calculateResults(snapshotParams) : null, [snapshotParams]);
 
+            // --- DEBOUNCED MONTE CARLO SIMULATION ENGINE (BLOKOVÁNO PŘI DRAGOVÁNÍ) ---
+            useEffect(() => {
+                if (!showMonteCarlo || isDragging) return;
+                
+                setIsSimulating(true);
+
+                const timerId = setTimeout(() => {
+                    const iterations = Math.max(100, Math.min(100000, mcIterations || 10000)); 
+                    let successCount = 0;
+                    let lcopArray = [];
+                    let totalLcop = 0;
+
+                    for (let i = 0; i < iterations; i++) {
+                        const p = { ...params };
+                        
+                        p.C43 = riskConfig.C43.isFixed ? params.C43 : rPERT(riskConfig.C43.min, params.C43, riskConfig.C43.max);
+                        p.C27 = riskConfig.C27.isFixed ? params.C27 : rPERT(riskConfig.C27.min, params.C27, riskConfig.C27.max);
+                        p.C53 = riskConfig.C53.isFixed ? params.C53 : rPERT(riskConfig.C53.min, params.C53, riskConfig.C53.max);
+                        p.C54 = riskConfig.C54.isFixed ? params.C54 : rPERT(riskConfig.C54.min, params.C54, riskConfig.C54.max);
+                        p.C7 =  riskConfig.C7.isFixed  ? params.C7  : rPERT(riskConfig.C7.min, params.C7, riskConfig.C7.max);
+                        p.C16 = riskConfig.C16.isFixed ? params.C16 : rPERT(riskConfig.C16.min, params.C16, riskConfig.C16.max);
+                        p.C15 = riskConfig.C15.isFixed ? params.C15 : rPERT(riskConfig.C15.min, params.C15, riskConfig.C15.max);
+                        p.C41 = riskConfig.C41.isFixed ? params.C41 : rPERT(riskConfig.C41.min, params.C41, riskConfig.C41.max); 
+                        p.C20 = riskConfig.C20.isFixed ? params.C20 : rPERT(riskConfig.C20.min, params.C20, riskConfig.C20.max);
+                        p.C25 = riskConfig.C25.isFixed ? params.C25 : rPERT(riskConfig.C25.min, params.C25, riskConfig.C25.max);
+                        p.C33 = riskConfig.C33.isFixed ? params.C33 : rPERT(riskConfig.C33.min, params.C33, riskConfig.C33.max);
+                        p.C49 = riskConfig.C49.isFixed ? params.C49 : rPERT(riskConfig.C49.min, params.C49, riskConfig.C49.max);
+                        
+                        p.C17 = riskConfig.C17.isFixed ? params.C17 : rLogNorm(params.C17, riskConfig.C17.vol);
+                        p.C61 = riskConfig.C61.isFixed ? params.C61 : rLogNorm(params.C61, riskConfig.C61.vol);
+                        p.C63 = riskConfig.C63.isFixed ? params.C63 : rLogNorm(params.C63, riskConfig.C63.vol);
+                        
+                        const iterRefPrice = riskConfig.RefPrice.isFixed ? params.RefPrice : rLogNorm(params.RefPrice, riskConfig.RefPrice.vol);
+                        p.RefPrice = iterRefPrice; 
+
+                        if (riskConfig.C69.isFixed) {
+                            p.C69 = params.C69;
+                        } else {
+                            const nRisk = riskConfig.C69.risk;
+                            const uN = Math.random();
+                            let multN = 1.0;
+                            if (nRisk === 'High') multN = (uN < 0.4 ? 1.0 : (uN < 0.8 ? 1.25 : 1.50));
+                            else if (nRisk === 'Low') multN = (uN < 0.8 ? 1.0 : (uN < 0.95 ? 1.25 : 1.50));
+                            else multN = (uN < 0.6 ? 1.0 : (uN < 0.9 ? 1.25 : 1.50));
+                            p.C69 = params.C69 * multN;
+                        }
+                        
+                        if (riskConfig.C66.isFixed) {
+                            p.C66 = params.C66;
+                        } else {
+                            const wRisk = riskConfig.C66.risk;
+                            const uW = Math.random();
+                            let multW = 1.0;
+                            if (wRisk === 'High') multW = (uW < 0.4 ? 1.0 : (uW < 0.8 ? 1.25 : 1.50));
+                            else if (wRisk === 'Low') multW = (uW < 0.8 ? 1.0 : (uW < 0.95 ? 1.25 : 1.50));
+                            else multW = (uW < 0.6 ? 1.0 : (uW < 0.9 ? 1.25 : 1.50)); 
+                            p.C66 = params.C66 * multW;
+                        }
+
+                        const res = calculateResults(p);
+                        lcopArray.push(res.lcop);
+                        totalLcop += res.lcop;
+
+                        if (res.lcop < iterRefPrice) {
+                            successCount++;
+                        }
+                    }
+
+                    lcopArray.sort((a, b) => a - b);
+                    const p90Idx = Math.floor(iterations * 0.90);
+
+                    setMcResults({
+                        probability: (successCount / iterations) * 100,
+                        lcopArray,
+                        meanLcop: totalLcop / iterations,
+                        p90Lcop: lcopArray[p90Idx]
+                    });
+                    
+                    setIsSimulating(false);
+                }, 50); 
+
+                return () => clearTimeout(timerId);
+            }, [params, riskConfig, showMonteCarlo, mcTrigger, mcIterations, isDragging]);
+
             const handleSnapshotToggle = () => {
                 if (snapshotParams) {
                     setSnapshotParams(null);
@@ -429,7 +780,7 @@
             };
 
             useEffect(() => {
-                if (!chartRef.current) return;
+                if (!chartRef.current || showMonteCarlo) return;
 
                 const ctx = chartRef.current.getContext('2d');
                 if (chartInstance.current) chartInstance.current.destroy();
@@ -515,7 +866,7 @@
                         data: currentResults.cumulative_cashflow,
                         borderColor: currentResults.payback_years < currentResults.horizon_npv ? '#10b981' : '#ef4444',
                         backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                        fill: !snapshotResults, // Only fill if single line for cleaner look
+                        fill: !snapshotResults, 
                         tension: 0.3,
                         pointRadius: isMobile ? 2 : 3,
                         pointHoverRadius: isMobile ? 4 : 6
@@ -619,15 +970,6 @@
                                     annotations: {
                                         line1: { type: 'line', xMin: 0, xMax: 0, borderColor: 'rgb(15, 23, 42)', borderWidth: 1 }
                                     }
-                                },
-                                tooltip: {
-                                    callbacks: {
-                                        label: (context) => {
-                                            const val = context.raw;
-                                            const sign = val > 0 ? '+' : '';
-                                            return `${context.dataset.label}: ${sign}${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(val)} €/m³ LCOP`;
-                                        }
-                                    }
                                 }
                             },
                             scales: {
@@ -644,7 +986,107 @@
                         }
                     });
                 }
-            }, [currentResults, referenceResults, snapshotResults, dashboardView, params]);
+
+                return () => {
+                    if (chartInstance.current) {
+                        chartInstance.current.destroy();
+                        chartInstance.current = null;
+                    }
+                };
+            }, [currentResults, referenceResults, snapshotResults, dashboardView, params, showMonteCarlo]);
+
+            useEffect(() => {
+                if (!showMonteCarlo || !mcChartRef.current || !mcResults) return;
+                
+                const ctx = mcChartRef.current.getContext('2d');
+                if (mcChartInstance.current) mcChartInstance.current.destroy();
+
+                const { lcopArray } = mcResults;
+                let minVal = Math.floor(Math.min(...lcopArray) / 10) * 10;
+                let maxVal = Math.ceil(Math.max(...lcopArray) / 10) * 10;
+                
+                // Oprava osy X: Zajištění, že se na osu vždy vejde Referenční cena, i když LCOP vyjde zcela mimo
+                const currentRefPrice = params.RefPrice;
+                if (currentRefPrice < minVal) {
+                    minVal = Math.floor(currentRefPrice / 10) * 10;
+                }
+                if (currentRefPrice > maxVal) {
+                    maxVal = Math.ceil(currentRefPrice / 10) * 10;
+                }
+
+                if (maxVal === minVal) maxVal += 10; 
+                
+                const bins = window.innerWidth < 768 ? 30 : 50;
+                const binWidth = (maxVal - minVal) / bins;
+                
+                const histogram = new Array(bins).fill(0);
+                lcopArray.forEach(val => {
+                    let idx = Math.floor((val - minVal) / binWidth);
+                    if (idx >= bins) idx = bins - 1;
+                    if (idx < 0) idx = 0;
+                    histogram[idx]++;
+                });
+
+                const labels = Array.from({length: bins}, (_, i) => (minVal + i * binWidth + binWidth/2).toFixed(0));
+
+                mcChartInstance.current = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Frequency (Monte Carlo)',
+                            data: histogram,
+                            backgroundColor: 'rgba(147, 51, 234, 0.7)', 
+                            barPercentage: 1.0,
+                            categoryPercentage: 1.0,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        animation: { duration: 300 }, 
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: { title: (ctx) => `LCOP: ~€${ctx[0].label}/m³`, label: (ctx) => `Occurrences: ${ctx.raw} (out of ${mcIterations})` }
+                            },
+                            annotation: {
+                                annotations: {
+                                    lineMean: { 
+                                        type: 'line', 
+                                        scaleID: 'x', 
+                                        value: ((params.RefPrice - minVal) / binWidth) - 0.5, 
+                                        borderColor: '#ef4444', 
+                                        borderWidth: 2, 
+                                        borderDash: [5, 5], 
+                                        label: { display: true, content: 'Ref. Price', position: 'start', backgroundColor: '#ef4444' } 
+                                    },
+                                    lineDeterministic: { 
+                                        type: 'line', 
+                                        scaleID: 'x', 
+                                        value: ((currentResults.lcop - minVal) / binWidth) - 0.5, 
+                                        borderColor: '#10b981', 
+                                        borderWidth: 2, 
+                                        label: { display: true, content: 'Determ. LCOP', position: 'end', backgroundColor: '#10b981' } 
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: { title: { display: true, text: 'Levelized Cost of Processing (€/m³)' }, grid: { display: false }, ticks: { maxTicksLimit: 10 } },
+                            y: { title: { display: true, text: 'Frequency (Simulations)' }, grid: { color: '#f1f5f9' } }
+                        }
+                    }
+                });
+
+                return () => {
+                    if (mcChartInstance.current) {
+                        mcChartInstance.current.destroy();
+                        mcChartInstance.current = null;
+                    }
+                };
+            }, [mcResults, showMonteCarlo]);
+
 
             const lcopDiff = currentResults.lcop - params.RefPrice;
             const lcopDiffPercent = (Math.abs(lcopDiff) / params.RefPrice) * 100;
@@ -888,11 +1330,23 @@
 
                             {/* Action Buttons Group */}
                             <div className="flex items-center gap-2 w-full sm:w-auto order-1 sm:order-2">
+                                {/* MONTE CARLO TOGGLE */}
                                 <button
-                                    onClick={() => setShowProcessFlow(!showProcessFlow)}
+                                    onClick={() => setShowMonteCarlo(true)}
+                                    className="flex-1 sm:flex-none text-[10px] sm:text-xs font-bold px-3 py-2 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 border bg-purple-600 text-white border-purple-600 hover:bg-purple-700"
+                                >
+                                    <LucideIcon name="dice-5" className="w-4 h-4" />
+                                    <span>Monte Carlo</span>
+                                </button>
+
+                                <button
+                                    onClick={() => {
+                                        setImageError(false);
+                                        setShowProcessFlow(!showProcessFlow);
+                                    }}
                                     className={`flex-1 sm:flex-none text-[10px] sm:text-xs font-bold px-3 py-2 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 border ${showProcessFlow ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'}`}
                                 >
-                                    <i data-lucide="map" className="w-4 h-4"></i>
+                                    <LucideIcon name="map" className="w-4 h-4" />
                                     <span className="hidden sm:inline">Block Flow Diagram</span>
                                     <span className="inline sm:hidden">BFD</span>
                                 </button>
@@ -903,7 +1357,7 @@
                                     className={`flex-1 sm:flex-none text-[10px] sm:text-xs font-bold px-3 py-2 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 border ${snapshotParams ? 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200' : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'}`}
                                     title={snapshotParams ? "Clear Comparison Snapshot" : "Lock Current Scenario for Comparison"}
                                 >
-                                    {snapshotParams ? <i data-lucide="x" className="w-4 h-4"></i> : <i data-lucide="camera" className="w-4 h-4"></i>}
+                                    {snapshotParams ? <LucideIcon name="x" className="w-4 h-4" /> : <LucideIcon name="camera" className="w-4 h-4" />}
                                     <span className="inline">{snapshotParams ? 'Clear Snap' : 'Snapshot'}</span>
                                 </button>
 
@@ -914,7 +1368,7 @@
                                         className="flex-1 sm:flex-none text-[10px] sm:text-xs font-bold px-3 py-2 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 border bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
                                         title="Restore parameters to Snapshot values"
                                     >
-                                        <i data-lucide="corner-up-left" className="w-4 h-4"></i>
+                                        <LucideIcon name="corner-up-left" className="w-4 h-4" />
                                         <span className="inline sm:hidden md:inline">Jump</span>
                                         <span className="hidden sm:inline">to Snap</span>
                                     </button>
@@ -925,7 +1379,7 @@
                                     className="flex-none text-[10px] sm:text-xs bg-white border border-slate-300 text-slate-600 hover:border-red-300 hover:text-red-600 font-bold px-3 py-2 sm:px-3 sm:py-2 rounded-lg shadow-sm transition-all flex items-center justify-center gap-1 sm:gap-2 shrink-0"
                                     title="Reset Parameters"
                                 >
-                                    <i data-lucide="rotate-ccw" className="w-4 h-4"></i>
+                                    <LucideIcon name="rotate-ccw" className="w-4 h-4" />
                                 </button>
                             </div>
                         </div>
@@ -1003,39 +1457,458 @@
                         </div>
                     </div>
 
+                    {/* MODAL OVERLAY FOR MONTE CARLO SIMULATION */}
+                    {showMonteCarlo && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-6 bg-slate-900/60 backdrop-blur-sm modal-backdrop" onClick={() => setShowMonteCarlo(false)}>
+                            <div className="bg-slate-50 rounded-xl shadow-2xl border border-slate-200 w-full max-w-7xl h-full max-h-[98vh] flex flex-col overflow-hidden modal-content" onClick={e => e.stopPropagation()}>
+                                {/* Modal Header */}
+                                <div className="flex justify-between items-center p-3 sm:p-4 border-b border-slate-200 bg-white shrink-0">
+                                    <div className="flex items-center gap-2 hidden md:flex">
+                                        <div className="p-1.5 bg-purple-100 rounded-lg text-purple-600">
+                                            <LucideIcon name="dice-5" className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-slate-800 text-lg leading-tight">Monte Carlo Risk Analysis</h3>
+                                            <p className="text-[10px] text-slate-500">Real-time probabilistic simulation</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 w-full md:w-auto justify-end">
+                                        <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-100 p-1 rounded-lg border border-slate-200">
+                                            <button
+                                                onClick={handleSnapshotToggle}
+                                                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] sm:text-xs font-bold shadow-sm transition-all ${snapshotParams ? 'bg-slate-200 text-slate-600 border border-slate-300 hover:bg-slate-300' : 'bg-blue-600 text-white border border-blue-600 hover:bg-blue-700'}`}
+                                                title={snapshotParams ? "Clear Comparison Snapshot" : "Lock Current Scenario"}
+                                            >
+                                                {snapshotParams ? <LucideIcon name="x" className="w-3.5 h-3.5" /> : <LucideIcon name="camera" className="w-3.5 h-3.5" />}
+                                                <span className="hidden lg:inline">{snapshotParams ? 'Clear Snap' : 'Snapshot'}</span>
+                                            </button>
+
+                                            {snapshotParams && (
+                                                <button
+                                                    onClick={handleJumpToSnapshot}
+                                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] sm:text-xs font-bold shadow-sm transition-all bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+                                                    title="Restore parameters to Snapshot values"
+                                                >
+                                                    <LucideIcon name="corner-up-left" className="w-3.5 h-3.5" />
+                                                    <span className="hidden lg:inline">Jump</span>
+                                                </button>
+                                            )}
+
+                                            <button 
+                                                onClick={() => setParams(INITIAL_PARAMS)}
+                                                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-slate-300 text-slate-600 hover:border-red-300 hover:text-red-600 rounded-md text-[10px] sm:text-xs font-bold shadow-sm transition-all"
+                                                title="Reset Parameters"
+                                            >
+                                                <LucideIcon name="rotate-ccw" className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+
+                                        <div className="hidden sm:block w-px h-6 bg-slate-200 mx-0.5"></div>
+
+                                        <button 
+                                            onClick={() => setMcTrigger(t => t + 1)}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 text-slate-700 hover:text-purple-700 hover:border-purple-400 hover:bg-purple-50 rounded-md text-[10px] sm:text-xs font-bold shadow-sm transition-colors active:scale-95"
+                                        >
+                                            <LucideIcon name="refresh-cw" className={`w-3.5 h-3.5 ${isSimulating ? 'animate-spin text-purple-500' : ''}`} />
+                                            <span className="hidden sm:inline">Re-run</span>
+                                        </button>
+                                        <button onClick={() => setShowMonteCarlo(false)} className="p-1.5 hover:bg-slate-100 rounded-full text-slate-500 transition-colors ml-1">
+                                            <LucideIcon name="x" className="w-5 h-5 sm:w-6 sm:h-6" />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Global Settings Bar */}
+                                <div className="bg-slate-100/80 border-b border-slate-200 px-3 sm:px-4 py-3 flex flex-wrap lg:flex-nowrap items-center gap-3 sm:gap-5 shrink-0 z-10 relative shadow-sm">
+                                     <div className="flex items-center bg-white px-2 py-1 rounded border border-slate-300 shadow-sm flex-1 sm:flex-none">
+                                          <span className="text-[10px] sm:text-xs font-bold text-slate-700 mr-2 whitespace-nowrap">Simulations:</span>
+                                          <input 
+                                              type="number" 
+                                              value={mcIterations} 
+                                              onChange={e => { const val = parseInt(e.target.value); setMcIterations(isNaN(val) ? 100 : val); }} 
+                                              onBlur={e => { const val = parseInt(e.target.value); setMcIterations(Math.max(100, Math.min(100000, isNaN(val) ? 10000 : val))); }}
+                                              className="w-full sm:w-20 text-right text-[10px] sm:text-xs font-mono outline-none text-purple-700 font-bold" 
+                                              min="100" max="100000" step="100" 
+                                          />
+                                     </div>
+
+                                     <div className="flex items-center bg-white px-2 py-1 rounded border border-slate-300 shadow-sm flex-1 sm:flex-none">
+                                          <span className="text-[10px] sm:text-xs font-bold text-slate-700 mr-2 whitespace-nowrap">CAPEX Subsidy:</span>
+                                          <input 
+                                              type="number" 
+                                              value={(params.C3 * 100).toFixed(0)} 
+                                              onChange={e => { const val = parseFloat(e.target.value); if(!isNaN(val)) setParams(p => ({...p, C3: Math.min(100, Math.max(0, val))/100})); }} 
+                                              className="w-full sm:w-12 text-right text-[10px] sm:text-xs font-mono outline-none text-slate-800" 
+                                              min="0" max="100" 
+                                          />
+                                          <span className="text-[10px] sm:text-xs font-bold text-slate-500 ml-1">%</span>
+                                     </div>
+
+                                     <div className={`flex items-center bg-white rounded border shadow-sm overflow-hidden flex-1 sm:flex-none transition-colors ${riskConfig.RefPrice.isFixed ? 'bg-indigo-50/40 border-indigo-300 focus-within:ring-1 focus-within:ring-indigo-400' : 'border-slate-300 focus-within:ring-1 focus-within:ring-purple-300'}`}>
+                                          <div className={`px-2 py-1 border-r flex items-center gap-2 ${riskConfig.RefPrice.isFixed ? 'bg-indigo-50/40 border-indigo-200' : 'bg-slate-50 border-slate-200'}`}>
+                                               <span className={`text-[10px] sm:text-xs font-bold whitespace-nowrap ${riskConfig.RefPrice.isFixed ? 'text-indigo-900' : 'text-slate-700'}`}>Ref NH3 Price:</span>
+                                               <button 
+                                                   onClick={() => setRiskConfig(p => ({...p, RefPrice: {...p.RefPrice, isFixed: !p.RefPrice.isFixed}}))} 
+                                                   className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider transition-colors border ${riskConfig.RefPrice.isFixed ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}
+                                               >
+                                                   {riskConfig.RefPrice.isFixed ? 'Fixed' : 'Modeled'}
+                                               </button>
+                                          </div>
+                                          <div className="px-2 py-1 flex items-center gap-1">
+                                              <input 
+                                                  type="number" 
+                                                  value={params.RefPrice} 
+                                                  onChange={e => { const val = parseFloat(e.target.value); setParams(p => ({...p, RefPrice: isNaN(val) ? 0 : val})); }} 
+                                                  className="w-12 sm:w-16 text-right text-[10px] sm:text-xs font-mono font-bold outline-none text-slate-800 custom-number-input bg-transparent" 
+                                              />
+                                              <span className="text-[10px] sm:text-xs font-bold text-slate-500 mr-2">€/t</span>
+                                              {!riskConfig.RefPrice.isFixed && (
+                                                  <select 
+                                                      value={riskConfig.RefPrice.vol} 
+                                                      onChange={e => setRiskConfig(p => ({...p, RefPrice: {...p.RefPrice, vol: e.target.value}}))} 
+                                                      className="text-[10px] sm:text-xs bg-slate-50 border border-slate-200 text-purple-700 font-bold rounded px-1 py-0.5 focus:outline-none focus:border-purple-400 cursor-pointer"
+                                                  >
+                                                       <option value="Low">Low (10% CV)</option>
+                                                       <option value="Medium">Med (20% CV)</option>
+                                                       <option value="High">High (40% CV)</option>
+                                                  </select>
+                                              )}
+                                          </div>
+                                     </div>
+                                </div>
+
+                                {/* Modal Content - Split View */}
+                                <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
+                                    {/* Left Panel: Risk Inputs */}
+                                    <div className="w-full md:w-[45%] lg:w-[40%] bg-slate-50 overflow-y-auto custom-scrollbar p-3 sm:p-4 border-r border-slate-200">
+                                        
+                                        <div className="mb-4 bg-indigo-50/50 rounded-lg border border-indigo-200 shadow-sm overflow-hidden transition-all">
+                                            <button 
+                                                onClick={() => setShowMcInfo(!showMcInfo)}
+                                                className="w-full flex justify-between items-center p-3 text-indigo-950 font-bold text-[11px] sm:text-xs hover:bg-indigo-100/50 transition-colors"
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <LucideIcon name="info" className="w-4 h-4 text-indigo-600" />
+                                                    <span>How this works (Transparent Math)</span>
+                                                </div>
+                                                <LucideIcon name={showMcInfo ? "chevron-up" : "chevron-down"} className="w-4 h-4 text-indigo-500" />
+                                            </button>
+                                            {showMcInfo && (
+                                                <div className="p-3.5 pt-0 text-[11px] sm:text-xs text-indigo-900 flex flex-col gap-3 leading-relaxed border-t border-indigo-200/50 bg-white/40">
+                                                    <p>
+                                                        Toggle any parameter between <strong>Modeled</strong> (randomized risk) and <strong>Fixed</strong> (hardcoded deterministic value). Modeled parameters use your exact inputs as the expected baseline.
+                                                    </p>
+                                                    <div className="grid grid-cols-1 gap-3 pt-3 border-t border-indigo-200/80">
+                                                        <div>
+                                                            <strong className="text-indigo-950 block mb-1">Commodity Volatility (Lognormal Distribution):</strong>
+                                                            We use a lognormal curve because it strictly caps the lowest possible price at zero, but allows a long "tail" for massive price spikes during supply chain shocks.<br/>
+                                                            <strong>CV (Coefficient of Variation)</strong> is the Standard Deviation expressed as a percentage of the Mean (e.g., at 100€, a 20% CV means a 20€ standard deviation).<br/>
+                                                            <span className="text-indigo-800/90 ml-2 block mt-1">• <strong>10% CV:</strong> Stable market (small fluctuations).</span>
+                                                            <span className="text-indigo-800/90 ml-2 block">• <strong>20% CV:</strong> Medium volatility.</span>
+                                                            <span className="text-indigo-800/90 ml-2 block">• <strong>40% CV:</strong> High volatility (extreme price crises).</span>
+                                                        </div>
+                                                        <div className="pt-2 border-t border-indigo-200/50">
+                                                            <strong className="text-indigo-950 block mb-1">Legislative Risk (Discrete Step-Hike):</strong>
+                                                            Fees jump instantly when a new law passes. We model this as a direct probability of a sudden +25% or +50% hike from the base price.<br/>
+                                                            <span className="text-indigo-800/90 ml-2 block mt-1">• <strong>Low Risk:</strong> 80% chance fees stay flat | 15% chance of a +25% hike | 5% chance of a +50% hike.</span>
+                                                            <span className="text-indigo-800/90 ml-2 block">• <strong>Standard Risk:</strong> 60% flat | 30% chance (+25% hike) | 10% chance (+50% hike).</span>
+                                                            <span className="text-indigo-800/90 ml-2 block">• <strong>High Risk:</strong> 40% flat | 40% chance (+25% hike) | 20% chance (+50% hike).</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-3 px-1 border-b border-slate-200 pb-1 flex items-center gap-2 mt-4">
+                                            <LucideIcon name="settings" className="w-3.5 h-3.5" /> Engineering (Beta-PERT)
+                                        </div>
+                                        <RiskSliderPERT 
+                                            label="EDBM Specific Energy" minBound={2} maxBound={30} 
+                                            min={riskConfig.C43.min} mode={params.C43} max={riskConfig.C43.max} 
+                                            unit="kWh/kg" isFixed={riskConfig.C43.isFixed} 
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C43:{...p.C43, isFixed:!p.C43.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C43:{...p.C43, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C43:{...p.C43, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, C43:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="RO Specific Energy" minBound={0.5} maxBound={3.5} 
+                                            min={riskConfig.C27.min} mode={params.C27} max={riskConfig.C27.max} 
+                                            unit="kWh/m³" decimals={2} isFixed={riskConfig.C27.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C27:{...p.C27, isFixed:!p.C27.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C27:{...p.C27, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C27:{...p.C27, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, C27:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="Industrial Steam Cost" minBound={10} maxBound={300} 
+                                            min={riskConfig.C54.min} mode={params.C54} max={riskConfig.C54.max} 
+                                            unit="€/t" decimals={0} isFixed={riskConfig.C54.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C54:{...p.C54, isFixed:!p.C54.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C54:{...p.C54, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C54:{...p.C54, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, C54:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="Steam Ratio in Stripper" minBound={0.05} maxBound={0.40} 
+                                            min={riskConfig.C53.min} mode={params.C53} max={riskConfig.C53.max} 
+                                            unit="stm/liq" scale={1} decimals={3} isFixed={riskConfig.C53.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C53:{...p.C53, isFixed:!p.C53.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C53:{...p.C53, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C53:{...p.C53, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, C53:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="Maintenance Factor (CAPEX)" minBound={0.01} maxBound={0.25} 
+                                            min={riskConfig.C7.min} mode={params.C7} max={riskConfig.C7.max} 
+                                            unit="%" scale={100} isFixed={riskConfig.C7.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C7:{...p.C7, isFixed:!p.C7.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C7:{...p.C7, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C7:{...p.C7, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, C7:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="System Lifetime" minBound={5} maxBound={30} 
+                                            min={riskConfig.C16.min} mode={params.C16} max={riskConfig.C16.max} 
+                                            unit="yr" decimals={0} isFixed={riskConfig.C16.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C16:{...p.C16, isFixed:!p.C16.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C16:{...p.C16, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C16:{...p.C16, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, C16:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="WACC" minBound={0.01} maxBound={0.20} 
+                                            min={riskConfig.C15.min} mode={params.C15} max={riskConfig.C15.max} 
+                                            unit="%" scale={100} isFixed={riskConfig.C15.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C15:{...p.C15, isFixed:!p.C15.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C15:{...p.C15, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C15:{...p.C15, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, C15:vals.mode})); 
+                                            }} 
+                                        />
+                                        
+                                        <div className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-3 px-1 border-b border-slate-200 pb-1 flex items-center gap-2 mt-6">
+                                            <LucideIcon name="building-2" className="w-3.5 h-3.5" /> CAPEX Equipment (Beta-PERT)
+                                        </div>
+                                        <RiskSliderPERT 
+                                            label="CAPEX EDBM" minBound={500000} maxBound={4000000} 
+                                            min={riskConfig.C41.min} mode={params.C41} max={riskConfig.C41.max} 
+                                            unit="€" decimals={0} isFixed={riskConfig.C41.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C41:{...p.C41, isFixed:!p.C41.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C41:{...p.C41, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C41:{...p.C41, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, C41:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="CAPEX Aux. Works" minBound={250000} maxBound={3000000} 
+                                            min={riskConfig.C20.min} mode={params.C20} max={riskConfig.C20.max} 
+                                            unit="€" decimals={0} isFixed={riskConfig.C20.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C20:{...p.C20, isFixed:!p.C20.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C20:{...p.C20, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C20:{...p.C20, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, C20:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="CAPEX RO" minBound={100000} maxBound={600000} 
+                                            min={riskConfig.C25.min} mode={params.C25} max={riskConfig.C25.max} 
+                                            unit="€" decimals={0} isFixed={riskConfig.C25.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C25:{...p.C25, isFixed:!p.C25.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C25:{...p.C25, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C25:{...p.C25, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, C25:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="CAPEX Stripper" minBound={150000} maxBound={1000000} 
+                                            min={riskConfig.C49.min} mode={params.C49} max={riskConfig.C49.max} 
+                                            unit="€" decimals={0} isFixed={riskConfig.C49.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C49:{...p.C49, isFixed:!p.C49.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C49:{...p.C49, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C49:{...p.C49, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, C49:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="CAPEX Filtration" minBound={10000} maxBound={100000} 
+                                            min={riskConfig.C33.min} mode={params.C33} max={riskConfig.C33.max} 
+                                            unit="€" decimals={0} isFixed={riskConfig.C33.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C33:{...p.C33, isFixed:!p.C33.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C33:{...p.C33, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C33:{...p.C33, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, C33:vals.mode})); 
+                                            }} 
+                                        />
+                                        
+                                        <div className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-3 mt-6 px-1 border-b border-slate-200 pb-1 flex items-center gap-2">
+                                            <LucideIcon name="trending-up" className="w-3.5 h-3.5" /> Commodities (Lognormal Risk)
+                                        </div>
+                                        <RiskDropdownLogNorm 
+                                            label="Electricity Price" mode={params.C17} volatility={riskConfig.C17.vol} 
+                                            unit="€/MWh" isFixed={riskConfig.C17.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C17:{...p.C17, isFixed:!p.C17.isFixed}}))}
+                                            onVolChange={vol => setRiskConfig(p => ({...p, C17: {...p.C17, vol}}))} 
+                                            onModeChange={val => setParams(p => ({...p, C17: val}))} 
+                                        />
+                                        <RiskDropdownLogNorm 
+                                            label="H2SO4 Cost" mode={params.C61} volatility={riskConfig.C61.vol} 
+                                            unit="€/t" isFixed={riskConfig.C61.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C61:{...p.C61, isFixed:!p.C61.isFixed}}))}
+                                            onVolChange={vol => setRiskConfig(p => ({...p, C61: {...p.C61, vol}}))} 
+                                            onModeChange={val => setParams(p => ({...p, C61: val}))} 
+                                        />
+                                        <RiskDropdownLogNorm 
+                                            label="NaOH Cost" mode={params.C63} volatility={riskConfig.C63.vol} 
+                                            unit="€/t" isFixed={riskConfig.C63.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C63:{...p.C63, isFixed:!p.C63.isFixed}}))}
+                                            onVolChange={vol => setRiskConfig(p => ({...p, C63: {...p.C63, vol}}))} 
+                                            onModeChange={val => setParams(p => ({...p, C63: val}))} 
+                                        />
+
+                                        <div className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-3 mt-6 px-1 border-b border-slate-200 pb-1 flex items-center gap-2">
+                                            <LucideIcon name="scale" className="w-3.5 h-3.5" /> Legislative (Discrete Risk)
+                                        </div>
+                                        <RiskDropdownDiscrete 
+                                            label="Nitrogen Discharge Fee" mode={params.C69} riskLevel={riskConfig.C69.risk} 
+                                            unit="€/kg N" isFixed={riskConfig.C69.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C69:{...p.C69, isFixed:!p.C69.isFixed}}))}
+                                            onRiskChange={risk => setRiskConfig(p => ({...p, C69: {...p.C69, risk}}))} 
+                                            onModeChange={val => setParams(p => ({...p, C69: val}))} 
+                                        />
+                                        <RiskDropdownDiscrete 
+                                            label="Water Discharge Fee" mode={params.C66} riskLevel={riskConfig.C66.risk} 
+                                            unit="€/m³" isFixed={riskConfig.C66.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, C66:{...p.C66, isFixed:!p.C66.isFixed}}))}
+                                            onRiskChange={risk => setRiskConfig(p => ({...p, C66: {...p.C66, risk}}))} 
+                                            onModeChange={val => setParams(p => ({...p, C66: val}))} 
+                                        />
+                                    </div>
+
+                                    {/* Right Panel: Output & Graph */}
+                                    <div className="w-full md:w-[55%] lg:w-[60%] flex flex-col p-3 sm:p-5 bg-white">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 shrink-0">
+                                            <KPICard 
+                                                label="Probability of Profitability" 
+                                                value={mcResults ? mcResults.probability.toFixed(1) + "%" : "..."} 
+                                                highlight={mcResults && mcResults.probability > 50}
+                                                className="border-purple-200 bg-purple-50/30 shadow-md"
+                                                icon={() => <LucideIcon name="target" className="w-5 h-5 text-purple-400 hidden sm:block" />}
+                                            >
+                                                <div className="text-[10px] sm:text-xs text-slate-500 mt-2">
+                                                    Chance that Final LCOP will be <strong className="text-emerald-600">below</strong> the Reference NH3 Price (€{params.RefPrice}/t).
+                                                </div>
+                                            </KPICard>
+
+                                            <div className="flex flex-col gap-2">
+                                                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex justify-between items-center shadow-sm">
+                                                    <span className="text-xs font-bold text-slate-600 uppercase">MC Mean LCOP</span>
+                                                    <span className="text-lg font-bold text-slate-800">
+                                                        {mcResults ? "€" + mcResults.meanLcop.toFixed(1) : "..."}
+                                                    </span>
+                                                </div>
+                                                <div className="bg-rose-50 p-3 rounded-lg border border-rose-100 flex justify-between items-center shadow-sm">
+                                                    <span className="text-xs font-bold text-rose-700 uppercase">P90 Worst Case</span>
+                                                    <span className="text-lg font-bold text-rose-800">
+                                                        {mcResults ? "€" + mcResults.p90Lcop.toFixed(1) : "..."}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <Card className="flex-1 flex flex-col relative shadow-md border-slate-200 min-h-[300px]">
+                                            <div className="flex justify-between items-center mb-2 shrink-0">
+                                                <h3 className="font-semibold text-slate-800 text-sm">Monte Carlo: LCOP Frequency Distribution</h3>
+                                                <div className="flex items-center gap-3 text-[10px] text-slate-500">
+                                                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500"></span> Deterministic LCOP</span>
+                                                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span> Reference Price</span>
+                                                </div>
+                                            </div>
+                                            
+                                            <div className={`relative flex-1 min-h-0 w-full mt-2 transition-opacity duration-300 ${isSimulating ? 'opacity-30' : 'opacity-100'}`}>
+                                                <canvas ref={mcChartRef}></canvas>
+                                                
+                                                {/* Zobrazení indikátoru načítání během přesunu posuvníku */}
+                                                {isSimulating && (
+                                                    <div className="absolute inset-0 flex items-center justify-center">
+                                                        <span className="text-purple-700 font-bold bg-white/90 px-4 py-2 rounded-lg shadow-sm border border-purple-100 flex items-center gap-2">
+                                                            <LucideIcon name="loader-2" className="w-4 h-4 animate-spin" />
+                                                            Simuluji rizika...
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </Card>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* MODAL OVERLAY FOR BLOCK FLOW DIAGRAM */}
                     {showProcessFlow && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm modal-backdrop" onClick={() => setShowProcessFlow(false)}>
                             <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden modal-content" onClick={e => e.stopPropagation()}>
                                 <div className="flex justify-between items-center p-3 sm:p-4 border-b border-slate-100 bg-slate-50">
                                     <div className="flex items-center gap-2">
-                                        <i data-lucide="map" className="w-5 h-5 text-slate-500"></i>
+                                        <LucideIcon name="map" className="w-5 h-5 text-slate-500" />
                                         <h3 className="font-bold text-slate-800 text-lg">Block Flow Diagram</h3>
                                     </div>
                                     <button
                                         onClick={() => setShowProcessFlow(false)}
                                         className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"
                                     >
-                                        <i data-lucide="x" className="w-6 h-6"></i>
+                                        <LucideIcon name="x" className="w-6 h-6" />
                                     </button>
                                 </div>
                                 <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-slate-100/50">
-                                    <img
-                                        src="./process_flow.png"
-                                        alt="Block Flow Diagram"
-                                        className="max-w-full max-h-full object-contain shadow-sm rounded"
-                                        onError={(e) => {
-                                            e.target.style.display = 'none';
-                                            e.target.nextElementSibling.classList.remove('hidden');
-                                        }}
-                                    />
-                                    <div className="hidden flex flex-col items-center justify-center text-center text-slate-500 p-8">
-                                         <i data-lucide="image-off" className="w-16 h-16 mb-4 text-slate-300"></i>
-                                         <p className="font-bold text-lg mb-2">Diagram Image Not Found</p>
-                                         <p className="text-sm max-w-md">
-                                            Please ensure <strong>process_flow.png</strong> is saved in the same folder as this HTML file.
-                                         </p>
-                                    </div>
+                                    {!imageError ? (
+                                        <img
+                                            src="./process_flow.png"
+                                            alt="Block Flow Diagram"
+                                            className="max-w-full max-h-full object-contain shadow-sm rounded"
+                                            onError={() => setImageError(true)}
+                                        />
+                                    ) : (
+                                        <div className="flex flex-col items-center justify-center text-center text-slate-500 p-8">
+                                             <LucideIcon name="image-off" className="w-16 h-16 mb-4 text-slate-300" />
+                                             <p className="font-bold text-lg mb-2">Diagram Image Not Found</p>
+                                             <p className="text-sm max-w-md">
+                                                Please ensure <strong>process_flow.png</strong> is saved in the same folder as this HTML file.
+                                             </p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
