@@ -141,14 +141,16 @@
             return x / (x + y);
         };
 
-        const rPERT = (min, mode, max) => {
+        // Modified PERT with custom gamma parameter
+        const rPERT = (min, mode, max, gamma = 4) => {
             if (min >= max) return mode;
             if (mode <= min || mode >= max) return mode;
-            const a = 1 + 4 * ((mode - min) / (max - min));
-            const b = 1 + 4 * ((max - mode) / (max - min));
+            const a = 1 + gamma * ((mode - min) / (max - min));
+            const b = 1 + gamma * ((max - mode) / (max - min));
             return min + rBeta(a, b) * (max - min);
         };
 
+        // Lognormal using dropdown string mappings
         const rLogNorm = (mean, volString) => {
             const volMap = { Low: 0.10, Medium: 0.20, High: 0.40 };
             const cv = volMap[volString] || 0.20;
@@ -300,7 +302,7 @@
 
         // --- CUSTOM COMPONENTS FOR MONTE CARLO RISK ---
         
-        const PertVisualization = ({ min, mode, max, minBound, maxBound, isFixed }) => {
+        const PertVisualization = ({ min, mode, max, minBound, maxBound, isFixed, gamma = 4 }) => {
             const points = 60;
             const h = 45; 
             
@@ -322,8 +324,8 @@
                 strokePath = `M ${modeX - w} ${h} C ${modeX - w*0.5} ${h}, ${modeX - w*0.4} 2, ${modeX} 2 C ${modeX + w*0.4} 2, ${modeX + w*0.5} ${h}, ${modeX + w} ${h}`;
             } else {
                 const range = Math.max(safeMax - safeMin, 0.001);
-                const alpha = 1 + 4 * ((safeMode - safeMin) / range);
-                const betaParam = 1 + 4 * ((safeMax - safeMode) / range);
+                const alpha = 1 + gamma * ((safeMode - safeMin) / range);
+                const betaParam = 1 + gamma * ((safeMax - safeMode) / range);
                 
                 let maxVal = 0;
                 const vals = [];
@@ -356,7 +358,7 @@
             );
         };
 
-        const RiskSliderPERT = ({ label, minBound, maxBound, min, mode, max, onChange, unit, scale = 1, decimals, isFixed, onToggleFixed, onDragStart }) => {
+        const RiskSliderPERT = ({ label, minBound, maxBound, min, mode, max, gamma, onChange, onGammaChange, unit, scale = 1, decimals, isFixed, onToggleFixed, onDragStart }) => {
             const dec = decimals !== undefined ? decimals : 1;
             
             const handleMin = (val) => { 
@@ -380,6 +382,12 @@
                     <div className="flex justify-between items-center mb-1 relative z-10">
                         <label className={`text-[11px] sm:text-xs font-bold ${isFixed ? 'text-indigo-900' : 'text-slate-800'}`}>{label}</label>
                         <div className="flex items-center gap-2">
+                            {!isFixed && (
+                                <div className="flex items-center bg-indigo-50/50 px-1.5 py-0.5 rounded border border-indigo-100" title="Shape factor (Gamma). Lower = flatter, Higher = sharper">
+                                    <span className="text-[9px] font-bold text-indigo-400 mr-1">γ:</span>
+                                    <input type="number" min="0.5" max="20" step="0.5" value={gamma} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) onGammaChange(Math.max(0.1, v)); }} className="w-8 text-right bg-transparent text-[10px] font-mono font-bold text-indigo-700 outline-none custom-number-input" />
+                                </div>
+                            )}
                             <span className="text-[9px] font-medium text-slate-500 bg-white px-1.5 py-0.5 rounded border border-slate-200">{unit}</span>
                             <button onClick={onToggleFixed} className={`text-[8px] px-2 py-0.5 rounded font-bold uppercase tracking-wider transition-colors border ${isFixed ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'}`}>
                                 {isFixed ? 'Fixed' : 'Modeled'}
@@ -408,7 +416,7 @@
 
                     <div className="relative mt-10 mb-1">
                         <div className="absolute bottom-[12px] left-[9px] right-[9px] h-[45px] pointer-events-none">
-                             <PertVisualization min={min} mode={mode} max={max} minBound={minBound} maxBound={maxBound} isFixed={isFixed} />
+                             <PertVisualization min={min} mode={mode} max={max} minBound={minBound} maxBound={maxBound} isFixed={isFixed} gamma={gamma} />
                         </div>
 
                         <div className="multi-slider-container relative z-10">
@@ -558,18 +566,18 @@
             }, []);
 
             const [riskConfig, setRiskConfig] = useState({
-                C43: { min: 8.0, max: 18.0, isFixed: false },
-                C27: { min: 1.25, max: 2.0, isFixed: false },
-                C53: { min: 0.165, max: 0.185, isFixed: false },
-                C54: { min: 25, max: 200, isFixed: false },
-                C7:  { min: 0.02, max: 0.10, isFixed: false },
-                C16: { min: 10, max: 20, isFixed: false },
-                C15: { min: 0.05, max: 0.10, isFixed: false },
-                C41: { min: 1269000, max: 3426000, isFixed: false },
-                C20: { min: 250000, max: 1500000, isFixed: false },
-                C25: { min: 212500, max: 350000, isFixed: false },
-                C33: { min: 34000, max: 56000, isFixed: false },
-                C49: { min: 318750, max: 525000, isFixed: false },
+                C43: { min: 8.0, max: 18.0, gamma: 4, isFixed: false },
+                C27: { min: 1.25, max: 2.0, gamma: 4, isFixed: false },
+                C53: { min: 0.165, max: 0.185, gamma: 4, isFixed: false },
+                C54: { min: 25, max: 200, gamma: 4, isFixed: false },
+                C7:  { min: 0.02, max: 0.10, gamma: 4, isFixed: false },
+                C16: { min: 10, max: 20, gamma: 4, isFixed: false },
+                C15: { min: 0.05, max: 0.10, gamma: 4, isFixed: false },
+                C41: { min: 1269000, max: 3426000, gamma: 4, isFixed: false },
+                C20: { min: 250000, max: 1500000, gamma: 4, isFixed: false },
+                C25: { min: 212500, max: 350000, gamma: 4, isFixed: false },
+                C33: { min: 34000, max: 56000, gamma: 4, isFixed: false },
+                C49: { min: 318750, max: 525000, gamma: 4, isFixed: false },
                 C17: { vol: 'High', isFixed: false },
                 C61: { vol: 'High', isFixed: false },
                 C63: { vol: 'High', isFixed: false },
@@ -699,18 +707,18 @@
                     for (let i = 0; i < iterations; i++) {
                         const p = { ...params };
                         
-                        p.C43 = riskConfig.C43.isFixed ? params.C43 : rPERT(riskConfig.C43.min, params.C43, riskConfig.C43.max);
-                        p.C27 = riskConfig.C27.isFixed ? params.C27 : rPERT(riskConfig.C27.min, params.C27, riskConfig.C27.max);
-                        p.C53 = riskConfig.C53.isFixed ? params.C53 : rPERT(riskConfig.C53.min, params.C53, riskConfig.C53.max);
-                        p.C54 = riskConfig.C54.isFixed ? params.C54 : rPERT(riskConfig.C54.min, params.C54, riskConfig.C54.max);
-                        p.C7 =  riskConfig.C7.isFixed  ? params.C7  : rPERT(riskConfig.C7.min, params.C7, riskConfig.C7.max);
-                        p.C16 = riskConfig.C16.isFixed ? params.C16 : rPERT(riskConfig.C16.min, params.C16, riskConfig.C16.max);
-                        p.C15 = riskConfig.C15.isFixed ? params.C15 : rPERT(riskConfig.C15.min, params.C15, riskConfig.C15.max);
-                        p.C41 = riskConfig.C41.isFixed ? params.C41 : rPERT(riskConfig.C41.min, params.C41, riskConfig.C41.max); 
-                        p.C20 = riskConfig.C20.isFixed ? params.C20 : rPERT(riskConfig.C20.min, params.C20, riskConfig.C20.max);
-                        p.C25 = riskConfig.C25.isFixed ? params.C25 : rPERT(riskConfig.C25.min, params.C25, riskConfig.C25.max);
-                        p.C33 = riskConfig.C33.isFixed ? params.C33 : rPERT(riskConfig.C33.min, params.C33, riskConfig.C33.max);
-                        p.C49 = riskConfig.C49.isFixed ? params.C49 : rPERT(riskConfig.C49.min, params.C49, riskConfig.C49.max);
+                        p.C43 = riskConfig.C43.isFixed ? params.C43 : rPERT(riskConfig.C43.min, params.C43, riskConfig.C43.max, riskConfig.C43.gamma);
+                        p.C27 = riskConfig.C27.isFixed ? params.C27 : rPERT(riskConfig.C27.min, params.C27, riskConfig.C27.max, riskConfig.C27.gamma);
+                        p.C53 = riskConfig.C53.isFixed ? params.C53 : rPERT(riskConfig.C53.min, params.C53, riskConfig.C53.max, riskConfig.C53.gamma);
+                        p.C54 = riskConfig.C54.isFixed ? params.C54 : rPERT(riskConfig.C54.min, params.C54, riskConfig.C54.max, riskConfig.C54.gamma);
+                        p.C7 =  riskConfig.C7.isFixed  ? params.C7  : rPERT(riskConfig.C7.min, params.C7, riskConfig.C7.max, riskConfig.C7.gamma);
+                        p.C16 = riskConfig.C16.isFixed ? params.C16 : rPERT(riskConfig.C16.min, params.C16, riskConfig.C16.max, riskConfig.C16.gamma);
+                        p.C15 = riskConfig.C15.isFixed ? params.C15 : rPERT(riskConfig.C15.min, params.C15, riskConfig.C15.max, riskConfig.C15.gamma);
+                        p.C41 = riskConfig.C41.isFixed ? params.C41 : rPERT(riskConfig.C41.min, params.C41, riskConfig.C41.max, riskConfig.C41.gamma); 
+                        p.C20 = riskConfig.C20.isFixed ? params.C20 : rPERT(riskConfig.C20.min, params.C20, riskConfig.C20.max, riskConfig.C20.gamma);
+                        p.C25 = riskConfig.C25.isFixed ? params.C25 : rPERT(riskConfig.C25.min, params.C25, riskConfig.C25.max, riskConfig.C25.gamma);
+                        p.C33 = riskConfig.C33.isFixed ? params.C33 : rPERT(riskConfig.C33.min, params.C33, riskConfig.C33.max, riskConfig.C33.gamma);
+                        p.C49 = riskConfig.C49.isFixed ? params.C49 : rPERT(riskConfig.C49.min, params.C49, riskConfig.C49.max, riskConfig.C49.gamma);
                         
                         p.C17 = riskConfig.C17.isFixed ? params.C17 : rLogNorm(params.C17, riskConfig.C17.vol);
                         p.C61 = riskConfig.C61.isFixed ? params.C61 : rLogNorm(params.C61, riskConfig.C61.vol);
@@ -1132,7 +1140,7 @@
 
                     <KPICard 
                         label="Total Net CAPEX" 
-                        value={currentResults.total_hard_capex_net.toLocaleString('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, notation: window.innerWidth < 640 ? "compact" : "standard" })} 
+                        value={currentResults.total_hard_capex_net.toLocaleString('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, notation: window.innerWidth < 640 ? "compact" : "standard" }) + " €"} 
                         rawValue={currentResults.total_hard_capex_net}
                         tooltipAlign="right"
                         helpText="Total Capital Expenditure minus subsidies."
@@ -1160,7 +1168,7 @@
 
                     <KPICard 
                         label="Total Annual OPEX" 
-                        value={currentResults.total_annual_opex.toLocaleString('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, notation: window.innerWidth < 640 ? "compact" : "standard" })} 
+                        value={currentResults.total_annual_opex.toLocaleString('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, notation: window.innerWidth < 640 ? "compact" : "standard" }) + " €"} 
                         rawValue={currentResults.total_annual_opex}
                         tooltipAlign="left"
                         helpText="Includes maintenance, electricity, steam, and chemical costs."
@@ -1205,7 +1213,7 @@
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 mb-4 shrink-0">
                     <KPICard 
                         label={`NPV (${currentResults.horizon_npv} Yrs)`} 
-                        value={currentResults.npv.toLocaleString('en-US', { style: 'currency', currency: 'EUR', notation: "compact" })} 
+                        value={currentResults.npv.toLocaleString('en-US', { style: 'currency', currency: 'EUR', notation: "compact" }) + " €"} 
                         rawValue={currentResults.npv}
                         highlight={currentResults.npv > 0} 
                         tooltipAlign="left"
@@ -1614,12 +1622,13 @@
                                                     </p>
                                                     <div className="grid grid-cols-1 gap-3 pt-3 border-t border-indigo-200/80">
                                                         <div>
+                                                            <strong className="text-indigo-950 block mb-1">Engineering (Modified-PERT Distribution):</strong>
+                                                            We use a variation of the Beta-PERT distribution. The <strong>γ (Gamma)</strong> parameter controls the flatness of the bell curve. Default is 4. Lowering the weight (e.g., γ = 2) flattens the curve, simulating higher uncertainty. Increasing it (e.g., γ = 8) sharpens the peak around the Mode.
+                                                        </div>
+                                                        <div className="pt-2 border-t border-indigo-200/50">
                                                             <strong className="text-indigo-950 block mb-1">Commodity Volatility (Lognormal Distribution):</strong>
                                                             We use a lognormal curve because it strictly caps the lowest possible price at zero, but allows a long "tail" for massive price spikes during supply chain shocks.<br/>
-                                                            <strong>CV (Coefficient of Variation)</strong> is the Standard Deviation expressed as a percentage of the Mean (e.g., at 100€, a 20% CV means a 20€ standard deviation).<br/>
-                                                            <span className="text-indigo-800/90 ml-2 block mt-1">• <strong>10% CV:</strong> Stable market (small fluctuations).</span>
-                                                            <span className="text-indigo-800/90 ml-2 block">• <strong>20% CV:</strong> Medium volatility.</span>
-                                                            <span className="text-indigo-800/90 ml-2 block">• <strong>40% CV:</strong> High volatility (extreme price crises).</span>
+                                                            <strong>CV% (Coefficient of Variation)</strong> is the Standard Deviation expressed as a percentage of the Mean (e.g., at 100€, a 20% CV means a 20€ standard deviation). A larger CV% stretches and flattens the curve, drastically increasing extreme upside risks.
                                                         </div>
                                                         <div className="pt-2 border-t border-indigo-200/50">
                                                             <strong className="text-indigo-950 block mb-1">Legislative Risk (Discrete Step-Hike):</strong>
@@ -1638,10 +1647,11 @@
                                         </div>
                                         <RiskSliderPERT 
                                             label="EDBM Specific Energy" minBound={2} maxBound={30} 
-                                            min={riskConfig.C43.min} mode={params.C43} max={riskConfig.C43.max} 
+                                            min={riskConfig.C43.min} mode={params.C43} max={riskConfig.C43.max} gamma={riskConfig.C43.gamma}
                                             unit="kWh/kg" isFixed={riskConfig.C43.isFixed} 
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C43:{...p.C43, isFixed:!p.C43.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C43:{...p.C43, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C43:{...p.C43, min:vals.min}})); 
                                                 if(vals.max!==undefined) setRiskConfig(p=>({...p, C43:{...p.C43, max:vals.max}})); 
@@ -1650,10 +1660,11 @@
                                         />
                                         <RiskSliderPERT 
                                             label="RO Specific Energy" minBound={0.5} maxBound={3.5} 
-                                            min={riskConfig.C27.min} mode={params.C27} max={riskConfig.C27.max} 
+                                            min={riskConfig.C27.min} mode={params.C27} max={riskConfig.C27.max} gamma={riskConfig.C27.gamma}
                                             unit="kWh/m³" decimals={2} isFixed={riskConfig.C27.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C27:{...p.C27, isFixed:!p.C27.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C27:{...p.C27, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C27:{...p.C27, min:vals.min}})); 
                                                 if(vals.max!==undefined) setRiskConfig(p=>({...p, C27:{...p.C27, max:vals.max}})); 
@@ -1662,10 +1673,11 @@
                                         />
                                         <RiskSliderPERT 
                                             label="Industrial Steam Cost" minBound={10} maxBound={300} 
-                                            min={riskConfig.C54.min} mode={params.C54} max={riskConfig.C54.max} 
+                                            min={riskConfig.C54.min} mode={params.C54} max={riskConfig.C54.max} gamma={riskConfig.C54.gamma}
                                             unit="€/t" decimals={0} isFixed={riskConfig.C54.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C54:{...p.C54, isFixed:!p.C54.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C54:{...p.C54, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C54:{...p.C54, min:vals.min}})); 
                                                 if(vals.max!==undefined) setRiskConfig(p=>({...p, C54:{...p.C54, max:vals.max}})); 
@@ -1674,10 +1686,11 @@
                                         />
                                         <RiskSliderPERT 
                                             label="Steam Ratio in Stripper" minBound={0.05} maxBound={0.40} 
-                                            min={riskConfig.C53.min} mode={params.C53} max={riskConfig.C53.max} 
+                                            min={riskConfig.C53.min} mode={params.C53} max={riskConfig.C53.max} gamma={riskConfig.C53.gamma}
                                             unit="stm/liq" scale={1} decimals={3} isFixed={riskConfig.C53.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C53:{...p.C53, isFixed:!p.C53.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C53:{...p.C53, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C53:{...p.C53, min:vals.min}})); 
                                                 if(vals.max!==undefined) setRiskConfig(p=>({...p, C53:{...p.C53, max:vals.max}})); 
@@ -1686,10 +1699,11 @@
                                         />
                                         <RiskSliderPERT 
                                             label="Maintenance Factor (CAPEX)" minBound={0.01} maxBound={0.25} 
-                                            min={riskConfig.C7.min} mode={params.C7} max={riskConfig.C7.max} 
+                                            min={riskConfig.C7.min} mode={params.C7} max={riskConfig.C7.max} gamma={riskConfig.C7.gamma}
                                             unit="%" scale={100} isFixed={riskConfig.C7.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C7:{...p.C7, isFixed:!p.C7.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C7:{...p.C7, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C7:{...p.C7, min:vals.min}})); 
                                                 if(vals.max!==undefined) setRiskConfig(p=>({...p, C7:{...p.C7, max:vals.max}})); 
@@ -1698,10 +1712,11 @@
                                         />
                                         <RiskSliderPERT 
                                             label="System Lifetime" minBound={5} maxBound={30} 
-                                            min={riskConfig.C16.min} mode={params.C16} max={riskConfig.C16.max} 
+                                            min={riskConfig.C16.min} mode={params.C16} max={riskConfig.C16.max} gamma={riskConfig.C16.gamma}
                                             unit="yr" decimals={0} isFixed={riskConfig.C16.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C16:{...p.C16, isFixed:!p.C16.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C16:{...p.C16, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C16:{...p.C16, min:vals.min}})); 
                                                 if(vals.max!==undefined) setRiskConfig(p=>({...p, C16:{...p.C16, max:vals.max}})); 
@@ -1710,10 +1725,11 @@
                                         />
                                         <RiskSliderPERT 
                                             label="WACC" minBound={0.01} maxBound={0.20} 
-                                            min={riskConfig.C15.min} mode={params.C15} max={riskConfig.C15.max} 
+                                            min={riskConfig.C15.min} mode={params.C15} max={riskConfig.C15.max} gamma={riskConfig.C15.gamma}
                                             unit="%" scale={100} isFixed={riskConfig.C15.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C15:{...p.C15, isFixed:!p.C15.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C15:{...p.C15, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C15:{...p.C15, min:vals.min}})); 
                                                 if(vals.max!==undefined) setRiskConfig(p=>({...p, C15:{...p.C15, max:vals.max}})); 
@@ -1726,10 +1742,11 @@
                                         </div>
                                         <RiskSliderPERT 
                                             label="CAPEX EDBM" minBound={500000} maxBound={4000000} 
-                                            min={riskConfig.C41.min} mode={params.C41} max={riskConfig.C41.max} 
+                                            min={riskConfig.C41.min} mode={params.C41} max={riskConfig.C41.max} gamma={riskConfig.C41.gamma}
                                             unit="€" decimals={0} isFixed={riskConfig.C41.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C41:{...p.C41, isFixed:!p.C41.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C41:{...p.C41, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C41:{...p.C41, min:vals.min}})); 
                                                 if(vals.max!==undefined) setRiskConfig(p=>({...p, C41:{...p.C41, max:vals.max}})); 
@@ -1738,10 +1755,11 @@
                                         />
                                         <RiskSliderPERT 
                                             label="CAPEX Aux. Works" minBound={250000} maxBound={3000000} 
-                                            min={riskConfig.C20.min} mode={params.C20} max={riskConfig.C20.max} 
+                                            min={riskConfig.C20.min} mode={params.C20} max={riskConfig.C20.max} gamma={riskConfig.C20.gamma}
                                             unit="€" decimals={0} isFixed={riskConfig.C20.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C20:{...p.C20, isFixed:!p.C20.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C20:{...p.C20, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C20:{...p.C20, min:vals.min}})); 
                                                 if(vals.max!==undefined) setRiskConfig(p=>({...p, C20:{...p.C20, max:vals.max}})); 
@@ -1750,10 +1768,11 @@
                                         />
                                         <RiskSliderPERT 
                                             label="CAPEX RO" minBound={100000} maxBound={600000} 
-                                            min={riskConfig.C25.min} mode={params.C25} max={riskConfig.C25.max} 
+                                            min={riskConfig.C25.min} mode={params.C25} max={riskConfig.C25.max} gamma={riskConfig.C25.gamma}
                                             unit="€" decimals={0} isFixed={riskConfig.C25.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C25:{...p.C25, isFixed:!p.C25.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C25:{...p.C25, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C25:{...p.C25, min:vals.min}})); 
                                                 if(vals.max!==undefined) setRiskConfig(p=>({...p, C25:{...p.C25, max:vals.max}})); 
@@ -1762,10 +1781,11 @@
                                         />
                                         <RiskSliderPERT 
                                             label="CAPEX Stripper" minBound={150000} maxBound={1000000} 
-                                            min={riskConfig.C49.min} mode={params.C49} max={riskConfig.C49.max} 
+                                            min={riskConfig.C49.min} mode={params.C49} max={riskConfig.C49.max} gamma={riskConfig.C49.gamma}
                                             unit="€" decimals={0} isFixed={riskConfig.C49.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C49:{...p.C49, isFixed:!p.C49.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C49:{...p.C49, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C49:{...p.C49, min:vals.min}})); 
                                                 if(vals.max!==undefined) setRiskConfig(p=>({...p, C49:{...p.C49, max:vals.max}})); 
@@ -1774,10 +1794,11 @@
                                         />
                                         <RiskSliderPERT 
                                             label="CAPEX Filtration" minBound={10000} maxBound={100000} 
-                                            min={riskConfig.C33.min} mode={params.C33} max={riskConfig.C33.max} 
+                                            min={riskConfig.C33.min} mode={params.C33} max={riskConfig.C33.max} gamma={riskConfig.C33.gamma}
                                             unit="€" decimals={0} isFixed={riskConfig.C33.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C33:{...p.C33, isFixed:!p.C33.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C33:{...p.C33, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C33:{...p.C33, min:vals.min}})); 
                                                 if(vals.max!==undefined) setRiskConfig(p=>({...p, C33:{...p.C33, max:vals.max}})); 
