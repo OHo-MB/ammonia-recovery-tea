@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ammonia Water Recovery - Strategic Dashboard</title>
     
-    <!-- TOTO JE TVŮJ NOVÝ FAVICON -->
     <link rel="icon" type="image/png" href="./logo_mobile.png">
     
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -150,10 +149,10 @@
             return min + rBeta(a, b) * (max - min);
         };
 
-        // Lognormal using dropdown string mappings
-        const rLogNorm = (mean, volString) => {
-            const volMap = { Low: 0.10, Medium: 0.20, High: 0.40 };
-            const cv = volMap[volString] || 0.20;
+        // Lognormal using continuous CV% parameter
+        const rLogNorm = (mean, cvPercent) => {
+            const cv = cvPercent / 100;
+            if (cv === 0) return mean;
             const varReal = Math.pow(mean * cv, 2);
             const sigma2 = Math.log(1 + varReal / Math.pow(mean, 2));
             const mu = Math.log(mean) - sigma2 / 2;
@@ -302,12 +301,15 @@
 
         // --- CUSTOM COMPONENTS FOR MONTE CARLO RISK ---
         
-        const PertVisualization = ({ min, mode, max, minBound, maxBound, isFixed, gamma = 4 }) => {
+        const PertVisualization = ({ min, mode, max, minBound, maxBound, isFixed, gamma = 4, isDragging }) => {
             const points = 60;
             const h = 45; 
             
             const safeMin = Math.max(minBound, min);
             const safeMax = Math.min(maxBound, Math.max(min + 0.001, max));
+            
+            // Pro Fixed mode nesmíme brát v potaz případné uživatelské "min" a "max" které si zrovna někam táhne, 
+            // protože by nám jinak ten pin skákal zleva doprava nelogicky.
             const safeMode = isFixed 
                 ? Math.min(Math.max(mode, minBound), maxBound) 
                 : Math.min(Math.max(mode, safeMin), safeMax);
@@ -318,10 +320,27 @@
             let strokePath = "";
 
             if (isFixed) {
+                // Zaoblený "Pin/Bell" kolaps pro pevnou hodnotu.
                 const modeX = getSvgX(safeMode);
-                const w = 2.5; 
-                fillPath = `M ${modeX - w} ${h} C ${modeX - w*0.5} ${h}, ${modeX - w*0.4} 2, ${modeX} 2 C ${modeX + w*0.4} 2, ${modeX + w*0.5} ${h}, ${modeX + w} ${h} Z`;
-                strokePath = `M ${modeX - w} ${h} C ${modeX - w*0.5} ${h}, ${modeX - w*0.4} 2, ${modeX} 2 C ${modeX + w*0.4} 2, ${modeX + w*0.5} ${h}, ${modeX + w} ${h}`;
+                const w = 1.5; // Relativní šířka zkolabovaného zvonku v procentech (1.5 % šíře plátna)
+                
+                // Měkčí křivka simulující zkolabovanou pravděpodobnost - stejný počet C a L jako v hlavní funkci dole pro 60 bodů, 
+                // tak aby CSS dokázalo přecházet "point-by-point". Pro plynulé morphing musíme generovat body úplně stejně.
+                const vals = [];
+                let maxVal = 1;
+                for(let i=0; i<=points; i++) {
+                    const t = i/points; // 0 to 1
+                    const x = safeMode + (t - 0.5) * 2 * ((maxBound - minBound) * 0.025); 
+                    const normDist = (x - safeMode) / ((maxBound - minBound) * 0.025);
+                    let y = 0;
+                    if (normDist >= -1 && normDist <= 1) {
+                        y = Math.pow(1 - normDist * normDist, 2);
+                    }
+                    vals.push({x, y});
+                }
+                fillPath = `M ${getSvgX(vals[0].x)} ${h} ` + vals.map(v => `L ${getSvgX(v.x)} ${h - (v.y/maxVal)*(h-2)}`).join(' ') + ` L ${getSvgX(vals[points].x)} ${h} Z`;
+                strokePath = `M ${getSvgX(vals[0].x)} ${h} ` + vals.map(v => `L ${getSvgX(v.x)} ${h - (v.y/maxVal)*(h-2)}`).join(' ');
+
             } else {
                 const range = Math.max(safeMax - safeMin, 0.001);
                 const alpha = 1 + gamma * ((safeMode - safeMin) / range);
@@ -344,6 +363,9 @@
                 strokePath = `M ${getSvgX(safeMin)} ${h} ` + vals.map(v => `L ${getSvgX(v.x)} ${h - (v.y/maxVal)*(h-2)}`).join(' ');
             }
 
+            // Pokud user hýbe jezdcem, vypneme transition úplně -> dokonalé nalepení na myš. Jinak dáme pružný morph (0.6s pro kolaps a animaci změny vlastností min/max po puštění).
+            const transitionStyle = isDragging ? 'none' : 'd 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)';
+
             return (
                 <svg viewBox={`0 0 100 ${h}`} width="100%" height={`${h}px`} className="overflow-visible absolute bottom-0 left-0 pointer-events-none z-0" preserveAspectRatio="none">
                     <defs>
@@ -352,13 +374,13 @@
                             <stop offset="100%" stopColor="rgba(147, 51, 234, 0.0)" />
                         </linearGradient>
                     </defs>
-                    <path d={fillPath} fill="url(#pertGrad)" />
-                    <path d={strokePath} fill="none" stroke="rgba(147, 51, 234, 0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                    <path d={fillPath} fill="url(#pertGrad)" style={{ transition: transitionStyle }} />
+                    <path d={strokePath} fill="none" stroke="rgba(147, 51, 234, 0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" style={{ transition: transitionStyle }} />
                 </svg>
             );
         };
 
-        const RiskSliderPERT = ({ label, minBound, maxBound, min, mode, max, gamma, onChange, onGammaChange, unit, scale = 1, decimals, isFixed, onToggleFixed, onDragStart }) => {
+        const RiskSliderPERT = ({ label, minBound, maxBound, min, mode, max, gamma, onChange, onGammaChange, unit, scale = 1, decimals, isFixed, onToggleFixed, onDragStart, isDragging }) => {
             const dec = decimals !== undefined ? decimals : 1;
             
             const handleMin = (val) => { 
@@ -368,6 +390,7 @@
             const handleMode = (val) => { 
                 let clamped = Math.min(Math.max(val, minBound), maxBound);
                 if (!isFixed) {
+                    // Ochrana před utáhnutím Modusu mimo okraje min/max během Modeled režimu
                     clamped = Math.min(Math.max(clamped, min), max);
                 }
                 onChange({ mode: clamped }); 
@@ -396,17 +419,17 @@
                     </div>
 
                     <div className="flex justify-between text-[10px] text-slate-500 mb-2 relative z-10 gap-1 sm:gap-2">
-                        {!isFixed && (
+                        {isFixed ? <div className="flex-1" /> : (
                             <div className="flex items-center bg-white px-1 py-0.5 rounded border border-blue-200 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-100 shadow-sm transition-colors flex-1">
                                 <span className="text-blue-600 font-semibold mr-0.5">Min:</span>
                                 <input type="number" value={(min * scale).toFixed(dec)} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) handleMin(v / scale); }} className="w-full min-w-0 bg-transparent text-right text-slate-700 outline-none font-mono custom-number-input" />
                             </div>
                         )}
-                        <div className={`flex items-center bg-white px-1 py-0.5 rounded border shadow-sm transition-colors ${isFixed ? 'w-1/2 mx-auto border-indigo-400 focus-within:ring-1 focus-within:ring-indigo-300' : 'flex-1 border-slate-300 focus-within:border-slate-500 focus-within:ring-1 focus-within:ring-slate-200'}`}>
+                        <div className={`flex items-center bg-white px-1 py-0.5 rounded border shadow-sm transition-colors flex-1 ${isFixed ? 'border-indigo-400 focus-within:ring-1 focus-within:ring-indigo-300' : 'border-slate-300 focus-within:border-slate-500 focus-within:ring-1 focus-within:ring-slate-200'}`}>
                             <span className={`${isFixed ? 'text-indigo-800' : 'text-slate-800'} font-bold mr-0.5`}>{isFixed ? 'Value:' : 'Mod:'}</span>
                             <input type="number" value={(mode * scale).toFixed(dec)} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) handleMode(v / scale); }} className="w-full min-w-0 bg-transparent text-right text-slate-900 font-bold outline-none font-mono custom-number-input" />
                         </div>
-                        {!isFixed && (
+                        {isFixed ? <div className="flex-1" /> : (
                             <div className="flex items-center bg-white px-1 py-0.5 rounded border border-rose-200 focus-within:border-rose-400 focus-within:ring-1 focus-within:ring-rose-100 shadow-sm transition-colors flex-1">
                                 <span className="text-rose-600 font-semibold mr-0.5">Max:</span>
                                 <input type="number" value={(max * scale).toFixed(dec)} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) handleMax(v / scale); }} className="w-full min-w-0 bg-transparent text-right text-slate-700 outline-none font-mono custom-number-input" />
@@ -416,7 +439,7 @@
 
                     <div className="relative mt-10 mb-1">
                         <div className="absolute bottom-[12px] left-[9px] right-[9px] h-[45px] pointer-events-none">
-                             <PertVisualization min={min} mode={mode} max={max} minBound={minBound} maxBound={maxBound} isFixed={isFixed} gamma={gamma} />
+                             <PertVisualization min={min} mode={mode} max={max} minBound={minBound} maxBound={maxBound} isFixed={isFixed} gamma={gamma} isDragging={isDragging} />
                         </div>
 
                         <div className="multi-slider-container relative z-10">
@@ -430,7 +453,7 @@
             );
         };
 
-        const RiskDropdownLogNorm = ({ label, mode, volatility, onVolChange, onModeChange, unit, isFixed, onToggleFixed }) => (
+        const RiskDropdownLogNorm = ({ label, mode, cv, onCvChange, onModeChange, unit, isFixed, onToggleFixed }) => (
             <div className={`mb-3 p-3 rounded-lg border shadow-sm transition-colors ${isFixed ? 'bg-indigo-50/40 border-indigo-200' : 'bg-white border-slate-200'}`}>
                 <div className="flex justify-between items-center mb-2">
                     <label className={`text-[11px] sm:text-xs font-bold ${isFixed ? 'text-indigo-900' : 'text-slate-800'}`}>{label}</label>
@@ -454,11 +477,10 @@
                             <input type="number" value={mode} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) onModeChange(v); }} className="w-full bg-transparent text-right text-slate-900 font-bold outline-none font-mono text-[11px] custom-number-input" />
                         </div>
                         <div className="flex flex-col items-end w-1/2">
-                            <select value={volatility} onChange={e => onVolChange(e.target.value)} className="text-[10px] w-full border border-slate-300 rounded px-1 py-1 bg-slate-50 focus:outline-none focus:border-purple-500 text-slate-700 font-medium cursor-pointer shadow-sm">
-                                <option value="Low">Low (10% CV)</option>
-                                <option value="Medium">Medium (20% CV)</option>
-                                <option value="High">High (40% CV)</option>
-                            </select>
+                            <div className="flex items-center bg-slate-50 px-2 py-1 rounded border border-slate-300 focus-within:border-purple-500 shadow-sm transition-colors w-full" title="Coefficient of Variation (Volatility %)">
+                                <span className="text-slate-500 font-bold mr-1 text-[10px]">CV%:</span>
+                                <input type="number" min="1" max="200" step="1" value={cv} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) onCvChange(Math.max(0.1, v)); }} className="w-full bg-transparent text-right text-slate-900 font-bold outline-none font-mono text-[11px] custom-number-input" />
+                            </div>
                         </div>
                     </div>
                 )}
@@ -553,6 +575,8 @@
             const [mcTrigger, setMcTrigger] = useState(0);
             const [isDragging, setIsDragging] = useState(false);
             const [showMcInfo, setShowMcInfo] = useState(false);
+            const [autoRecalculate, setAutoRecalculate] = useState(true);
+            const prevMcTrigger = useRef(0);
 
             // Globální event listener pro odchycení uvolnění myši/displeje kdekoli na obrazovce
             useEffect(() => {
@@ -578,10 +602,10 @@
                 C25: { min: 212500, max: 350000, gamma: 4, isFixed: false },
                 C33: { min: 34000, max: 56000, gamma: 4, isFixed: false },
                 C49: { min: 318750, max: 525000, gamma: 4, isFixed: false },
-                C17: { vol: 'High', isFixed: false },
-                C61: { vol: 'High', isFixed: false },
-                C63: { vol: 'High', isFixed: false },
-                RefPrice: { vol: 'Medium', isFixed: false },
+                C17: { cv: 40, isFixed: false },
+                C61: { cv: 40, isFixed: false },
+                C63: { cv: 40, isFixed: false },
+                RefPrice: { cv: 20, isFixed: false },
                 C69: { risk: 'Standard', isFixed: false },
                 C66: { risk: 'Standard', isFixed: false }
             });
@@ -692,12 +716,16 @@
             const referenceResults = useMemo(() => calculateResults(INITIAL_PARAMS), []);
             const snapshotResults = useMemo(() => snapshotParams ? calculateResults(snapshotParams) : null, [snapshotParams]);
 
-            // --- DEBOUNCED MONTE CARLO SIMULATION ENGINE (BLOKOVÁNO PŘI DRAGOVÁNÍ) ---
+            // --- MONTE CARLO SIMULATION ENGINE ---
             useEffect(() => {
                 if (!showMonteCarlo || isDragging) return;
+
+                const isManualTrigger = mcTrigger !== prevMcTrigger.current;
+                if (!autoRecalculate && !isManualTrigger) return;
                 
                 setIsSimulating(true);
 
+                // Zpoždění nastaveno na 650ms, aby CSS animace vlny (600ms) měla čas v klidu doběhnout do konce.
                 const timerId = setTimeout(() => {
                     const iterations = Math.max(100, Math.min(100000, mcIterations || 10000)); 
                     let successCount = 0;
@@ -720,11 +748,11 @@
                         p.C33 = riskConfig.C33.isFixed ? params.C33 : rPERT(riskConfig.C33.min, params.C33, riskConfig.C33.max, riskConfig.C33.gamma);
                         p.C49 = riskConfig.C49.isFixed ? params.C49 : rPERT(riskConfig.C49.min, params.C49, riskConfig.C49.max, riskConfig.C49.gamma);
                         
-                        p.C17 = riskConfig.C17.isFixed ? params.C17 : rLogNorm(params.C17, riskConfig.C17.vol);
-                        p.C61 = riskConfig.C61.isFixed ? params.C61 : rLogNorm(params.C61, riskConfig.C61.vol);
-                        p.C63 = riskConfig.C63.isFixed ? params.C63 : rLogNorm(params.C63, riskConfig.C63.vol);
+                        p.C17 = riskConfig.C17.isFixed ? params.C17 : rLogNorm(params.C17, riskConfig.C17.cv);
+                        p.C61 = riskConfig.C61.isFixed ? params.C61 : rLogNorm(params.C61, riskConfig.C61.cv);
+                        p.C63 = riskConfig.C63.isFixed ? params.C63 : rLogNorm(params.C63, riskConfig.C63.cv);
                         
-                        const iterRefPrice = riskConfig.RefPrice.isFixed ? params.RefPrice : rLogNorm(params.RefPrice, riskConfig.RefPrice.vol);
+                        const iterRefPrice = riskConfig.RefPrice.isFixed ? params.RefPrice : rLogNorm(params.RefPrice, riskConfig.RefPrice.cv);
                         p.RefPrice = iterRefPrice; 
 
                         if (riskConfig.C69.isFixed) {
@@ -770,11 +798,12 @@
                         p90Lcop: lcopArray[p90Idx]
                     });
                     
+                    prevMcTrigger.current = mcTrigger;
                     setIsSimulating(false);
-                }, 50); 
+                }, 650); 
 
                 return () => clearTimeout(timerId);
-            }, [params, riskConfig, showMonteCarlo, mcTrigger, mcIterations, isDragging]);
+            }, [params, riskConfig, showMonteCarlo, mcTrigger, mcIterations, isDragging, autoRecalculate]);
 
             const handleSnapshotToggle = () => {
                 if (snapshotParams) {
@@ -1521,13 +1550,25 @@
 
                                         <div className="hidden sm:block w-px h-6 bg-slate-200 mx-0.5"></div>
 
-                                        <button 
-                                            onClick={() => setMcTrigger(t => t + 1)}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 text-slate-700 hover:text-purple-700 hover:border-purple-400 hover:bg-purple-50 rounded-md text-[10px] sm:text-xs font-bold shadow-sm transition-colors active:scale-95"
-                                        >
-                                            <LucideIcon name="refresh-cw" className={`w-3.5 h-3.5 ${isSimulating ? 'animate-spin text-purple-500' : ''}`} />
-                                            <span className="hidden sm:inline">Re-run</span>
-                                        </button>
+                                        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
+                                            <button
+                                                onClick={() => setAutoRecalculate(!autoRecalculate)}
+                                                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] sm:text-xs font-bold shadow-sm transition-all ${autoRecalculate ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-white text-slate-500 border border-slate-300 hover:bg-slate-50'}`}
+                                                title={autoRecalculate ? "Auto-Recalculate is ON. Click to pause." : "Auto-Recalculate is PAUSED. Click to resume."}
+                                            >
+                                                <LucideIcon name={autoRecalculate ? "zap" : "pause-circle"} className="w-3.5 h-3.5" />
+                                                <span className="hidden xl:inline">{autoRecalculate ? 'Auto: ON' : 'Auto: OFF'}</span>
+                                            </button>
+                                            <button 
+                                                onClick={() => setMcTrigger(t => t + 1)}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 text-slate-700 hover:text-purple-700 hover:border-purple-400 hover:bg-purple-50 rounded-md text-[10px] sm:text-xs font-bold shadow-sm transition-colors active:scale-95"
+                                                title="Force manual recalculation"
+                                            >
+                                                <LucideIcon name="refresh-cw" className={`w-3.5 h-3.5 ${isSimulating ? 'animate-spin text-purple-500' : ''}`} />
+                                                <span className="hidden sm:inline">Re-run</span>
+                                            </button>
+                                        </div>
+
                                         <button onClick={() => setShowMonteCarlo(false)} className="p-1.5 hover:bg-slate-100 rounded-full text-slate-500 transition-colors ml-1">
                                             <LucideIcon name="x" className="w-5 h-5 sm:w-6 sm:h-6" />
                                         </button>
@@ -1651,6 +1692,7 @@
                                             unit="kWh/kg" isFixed={riskConfig.C43.isFixed} 
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C43:{...p.C43, isFixed:!p.C43.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
                                             onGammaChange={(g) => setRiskConfig(p=>({...p, C43:{...p.C43, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C43:{...p.C43, min:vals.min}})); 
@@ -1664,6 +1706,7 @@
                                             unit="kWh/m³" decimals={2} isFixed={riskConfig.C27.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C27:{...p.C27, isFixed:!p.C27.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
                                             onGammaChange={(g) => setRiskConfig(p=>({...p, C27:{...p.C27, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C27:{...p.C27, min:vals.min}})); 
@@ -1677,6 +1720,7 @@
                                             unit="€/t" decimals={0} isFixed={riskConfig.C54.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C54:{...p.C54, isFixed:!p.C54.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
                                             onGammaChange={(g) => setRiskConfig(p=>({...p, C54:{...p.C54, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C54:{...p.C54, min:vals.min}})); 
@@ -1690,6 +1734,7 @@
                                             unit="stm/liq" scale={1} decimals={3} isFixed={riskConfig.C53.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C53:{...p.C53, isFixed:!p.C53.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
                                             onGammaChange={(g) => setRiskConfig(p=>({...p, C53:{...p.C53, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C53:{...p.C53, min:vals.min}})); 
@@ -1703,6 +1748,7 @@
                                             unit="%" scale={100} isFixed={riskConfig.C7.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C7:{...p.C7, isFixed:!p.C7.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
                                             onGammaChange={(g) => setRiskConfig(p=>({...p, C7:{...p.C7, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C7:{...p.C7, min:vals.min}})); 
@@ -1716,6 +1762,7 @@
                                             unit="yr" decimals={0} isFixed={riskConfig.C16.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C16:{...p.C16, isFixed:!p.C16.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
                                             onGammaChange={(g) => setRiskConfig(p=>({...p, C16:{...p.C16, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C16:{...p.C16, min:vals.min}})); 
@@ -1729,6 +1776,7 @@
                                             unit="%" scale={100} isFixed={riskConfig.C15.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C15:{...p.C15, isFixed:!p.C15.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
                                             onGammaChange={(g) => setRiskConfig(p=>({...p, C15:{...p.C15, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C15:{...p.C15, min:vals.min}})); 
@@ -1746,6 +1794,7 @@
                                             unit="€" decimals={0} isFixed={riskConfig.C41.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C41:{...p.C41, isFixed:!p.C41.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
                                             onGammaChange={(g) => setRiskConfig(p=>({...p, C41:{...p.C41, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C41:{...p.C41, min:vals.min}})); 
@@ -1759,6 +1808,7 @@
                                             unit="€" decimals={0} isFixed={riskConfig.C20.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C20:{...p.C20, isFixed:!p.C20.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
                                             onGammaChange={(g) => setRiskConfig(p=>({...p, C20:{...p.C20, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C20:{...p.C20, min:vals.min}})); 
@@ -1772,6 +1822,7 @@
                                             unit="€" decimals={0} isFixed={riskConfig.C25.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C25:{...p.C25, isFixed:!p.C25.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
                                             onGammaChange={(g) => setRiskConfig(p=>({...p, C25:{...p.C25, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C25:{...p.C25, min:vals.min}})); 
@@ -1785,6 +1836,7 @@
                                             unit="€" decimals={0} isFixed={riskConfig.C49.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C49:{...p.C49, isFixed:!p.C49.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
                                             onGammaChange={(g) => setRiskConfig(p=>({...p, C49:{...p.C49, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C49:{...p.C49, min:vals.min}})); 
@@ -1798,6 +1850,7 @@
                                             unit="€" decimals={0} isFixed={riskConfig.C33.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C33:{...p.C33, isFixed:!p.C33.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
                                             onGammaChange={(g) => setRiskConfig(p=>({...p, C33:{...p.C33, gamma: g}}))}
                                             onChange={(vals) => { 
                                                 if(vals.min!==undefined) setRiskConfig(p=>({...p, C33:{...p.C33, min:vals.min}})); 
