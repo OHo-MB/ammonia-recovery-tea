@@ -308,8 +308,6 @@
             const safeMin = Math.max(minBound, min);
             const safeMax = Math.min(maxBound, Math.max(min + 0.001, max));
             
-            // Pro Fixed mode nesmíme brát v potaz případné uživatelské "min" a "max" které si zrovna někam táhne, 
-            // protože by nám jinak ten pin skákal zleva doprava nelogicky.
             const safeMode = isFixed 
                 ? Math.min(Math.max(mode, minBound), maxBound) 
                 : Math.min(Math.max(mode, safeMin), safeMax);
@@ -320,16 +318,13 @@
             let strokePath = "";
 
             if (isFixed) {
-                // Zaoblený "Pin/Bell" kolaps pro pevnou hodnotu.
                 const modeX = getSvgX(safeMode);
-                const w = 1.5; // Relativní šířka zkolabovaného zvonku v procentech (1.5 % šíře plátna)
+                const w = 1.5; 
                 
-                // Měkčí křivka simulující zkolabovanou pravděpodobnost - stejný počet C a L jako v hlavní funkci dole pro 60 bodů, 
-                // tak aby CSS dokázalo přecházet "point-by-point". Pro plynulé morphing musíme generovat body úplně stejně.
                 const vals = [];
                 let maxVal = 1;
                 for(let i=0; i<=points; i++) {
-                    const t = i/points; // 0 to 1
+                    const t = i/points; 
                     const x = safeMode + (t - 0.5) * 2 * ((maxBound - minBound) * 0.025); 
                     const normDist = (x - safeMode) / ((maxBound - minBound) * 0.025);
                     let y = 0;
@@ -363,7 +358,6 @@
                 strokePath = `M ${getSvgX(safeMin)} ${h} ` + vals.map(v => `L ${getSvgX(v.x)} ${h - (v.y/maxVal)*(h-2)}`).join(' ');
             }
 
-            // Pokud user hýbe jezdcem, vypneme transition úplně -> dokonalé nalepení na myš. Jinak dáme pružný morph (0.6s pro kolaps a animaci změny vlastností min/max po puštění).
             const transitionStyle = isDragging ? 'none' : 'd 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)';
 
             return (
@@ -390,7 +384,6 @@
             const handleMode = (val) => { 
                 let clamped = Math.min(Math.max(val, minBound), maxBound);
                 if (!isFixed) {
-                    // Ochrana před utáhnutím Modusu mimo okraje min/max během Modeled režimu
                     clamped = Math.min(Math.max(clamped, min), max);
                 }
                 onChange({ mode: clamped }); 
@@ -748,10 +741,12 @@
                         p.C33 = riskConfig.C33.isFixed ? params.C33 : rPERT(riskConfig.C33.min, params.C33, riskConfig.C33.max, riskConfig.C33.gamma);
                         p.C49 = riskConfig.C49.isFixed ? params.C49 : rPERT(riskConfig.C49.min, params.C49, riskConfig.C49.max, riskConfig.C49.gamma);
                         
+                        // OPAVA: Správné čtení hodnoty CV z objektu riskConfig namísto neexistující "vol"
                         p.C17 = riskConfig.C17.isFixed ? params.C17 : rLogNorm(params.C17, riskConfig.C17.cv);
                         p.C61 = riskConfig.C61.isFixed ? params.C61 : rLogNorm(params.C61, riskConfig.C61.cv);
                         p.C63 = riskConfig.C63.isFixed ? params.C63 : rLogNorm(params.C63, riskConfig.C63.cv);
                         
+                        // OPRAVA: RefPrice.cv nyní korektně přijímá číslo na základě dropdown výběru uživatele
                         const iterRefPrice = riskConfig.RefPrice.isFixed ? params.RefPrice : rLogNorm(params.RefPrice, riskConfig.RefPrice.cv);
                         p.RefPrice = iterRefPrice; 
 
@@ -1627,13 +1622,13 @@
                                               </div>
                                               {!riskConfig.RefPrice.isFixed && (
                                                   <select 
-                                                      value={riskConfig.RefPrice.vol} 
-                                                      onChange={e => setRiskConfig(p => ({...p, RefPrice: {...p.RefPrice, vol: e.target.value}}))} 
+                                                      value={riskConfig.RefPrice.cv} 
+                                                      onChange={e => setRiskConfig(p => ({...p, RefPrice: {...p.RefPrice, cv: parseFloat(e.target.value)}}))} 
                                                       className="text-[10px] sm:text-xs bg-slate-50 border border-slate-200 text-purple-700 font-bold rounded px-1 py-0.5 focus:outline-none focus:border-purple-400 cursor-pointer"
                                                   >
-                                                       <option value="Low">Low (10% CV)</option>
-                                                       <option value="Medium">Med (20% CV)</option>
-                                                       <option value="High">High (40% CV)</option>
+                                                       <option value={10}>Low (10% CV)</option>
+                                                       <option value={20}>Med (20% CV)</option>
+                                                       <option value={40}>High (40% CV)</option>
                                                   </select>
                                               )}
                                           </div>
@@ -1863,24 +1858,24 @@
                                             <LucideIcon name="trending-up" className="w-3.5 h-3.5" /> Commodities (Lognormal Risk)
                                         </div>
                                         <RiskDropdownLogNorm 
-                                            label="Electricity Price" mode={params.C17} volatility={riskConfig.C17.vol} 
+                                            label="Electricity Price" mode={params.C17} cv={riskConfig.C17.cv} 
                                             unit="€/MWh" isFixed={riskConfig.C17.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C17:{...p.C17, isFixed:!p.C17.isFixed}}))}
-                                            onVolChange={vol => setRiskConfig(p => ({...p, C17: {...p.C17, vol}}))} 
+                                            onCvChange={cv => setRiskConfig(p => ({...p, C17: {...p.C17, cv}}))} 
                                             onModeChange={val => setParams(p => ({...p, C17: val}))} 
                                         />
                                         <RiskDropdownLogNorm 
-                                            label="H2SO4 Cost" mode={params.C61} volatility={riskConfig.C61.vol} 
+                                            label="H2SO4 Cost" mode={params.C61} cv={riskConfig.C61.cv} 
                                             unit="€/t" isFixed={riskConfig.C61.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C61:{...p.C61, isFixed:!p.C61.isFixed}}))}
-                                            onVolChange={vol => setRiskConfig(p => ({...p, C61: {...p.C61, vol}}))} 
+                                            onCvChange={cv => setRiskConfig(p => ({...p, C61: {...p.C61, cv}}))} 
                                             onModeChange={val => setParams(p => ({...p, C61: val}))} 
                                         />
                                         <RiskDropdownLogNorm 
-                                            label="NaOH Cost" mode={params.C63} volatility={riskConfig.C63.vol} 
+                                            label="NaOH Cost" mode={params.C63} cv={riskConfig.C63.cv} 
                                             unit="€/t" isFixed={riskConfig.C63.isFixed}
                                             onToggleFixed={() => setRiskConfig(p=>({...p, C63:{...p.C63, isFixed:!p.C63.isFixed}}))}
-                                            onVolChange={vol => setRiskConfig(p => ({...p, C63: {...p.C63, vol}}))} 
+                                            onCvChange={cv => setRiskConfig(p => ({...p, C63: {...p.C63, cv}}))} 
                                             onModeChange={val => setParams(p => ({...p, C63: val}))} 
                                         />
 
