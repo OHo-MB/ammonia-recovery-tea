@@ -121,10 +121,12 @@
         };
 
         const rGamma = (alpha) => {
+            if (isNaN(alpha) || alpha <= 0) return 0;
             if (alpha < 1) return rGamma(alpha + 1) * Math.pow(Math.random(), 1 / alpha);
             const d = alpha - 1 / 3;
             const c = 1 / Math.sqrt(9 * d);
-            while (true) {
+            let loopLimit = 1000;
+            while (loopLimit-- > 0) {
                 let x = randn_bm();
                 let v = Math.pow(1 + c * x, 3);
                 if (v <= 0) continue;
@@ -132,16 +134,19 @@
                 if (u < 1 - 0.0331 * Math.pow(x, 4)) return d * v;
                 if (Math.log(u) < 0.5 * Math.pow(x, 2) + d * (1 - v + Math.log(v))) return d * v;
             }
+            return d;
         };
 
         const rBeta = (a, b) => {
             const x = rGamma(a);
             const y = rGamma(b);
+            if (x === 0 && y === 0) return 0.5;
             return x / (x + y);
         };
 
         // Modified PERT with custom gamma parameter
         const rPERT = (min, mode, max, gamma = 4) => {
+            if (isNaN(min) || isNaN(mode) || isNaN(max) || isNaN(gamma)) return mode || 0;
             if (min >= max) return mode;
             if (mode <= min || mode >= max) return mode;
             const a = 1 + gamma * ((mode - min) / (max - min));
@@ -151,6 +156,7 @@
 
         // Lognormal using continuous CV% parameter
         const rLogNorm = (mean, cvPercent) => {
+            if (isNaN(mean) || isNaN(cvPercent)) return mean || 0;
             const cv = cvPercent / 100;
             if (cv === 0) return mean;
             const varReal = Math.pow(mean * cv, 2);
@@ -164,7 +170,10 @@
             const spanRef = useRef(null);
             useEffect(() => {
                 if (spanRef.current && window.lucide) {
-                    spanRef.current.innerHTML = `<i data-lucide="${name}"></i>`;
+                    const iconNode = document.createElement('i');
+                    iconNode.setAttribute('data-lucide', name);
+                    spanRef.current.innerHTML = '';
+                    spanRef.current.appendChild(iconNode);
                     window.lucide.createIcons({
                         root: spanRef.current,
                         attrs: { class: className }
@@ -446,119 +455,82 @@
             );
         };
 
-        const RiskDropdownLogNorm = ({ label, mode, cv, onCvChange, onModeChange, unit, isFixed, onToggleFixed }) => (
-            <div className={`mb-3 p-3 rounded-lg border shadow-sm transition-colors ${isFixed ? 'bg-indigo-50/40 border-indigo-200' : 'bg-white border-slate-200'}`}>
-                <div className="flex justify-between items-center mb-2">
-                    <label className={`text-[11px] sm:text-xs font-bold ${isFixed ? 'text-indigo-900' : 'text-slate-800'}`}>{label}</label>
-                    <div className="flex items-center gap-2">
-                        <span className="text-[9px] font-medium text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-200">{unit}</span>
-                        <button onClick={onToggleFixed} className={`text-[8px] px-2 py-0.5 rounded font-bold uppercase tracking-wider transition-colors border ${isFixed ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'}`}>
-                            {isFixed ? 'Fixed' : 'Modeled'}
-                        </button>
-                    </div>
-                </div>
-
-                {isFixed ? (
-                    <div className="flex items-center bg-white px-2 py-1.5 rounded border border-indigo-400 focus-within:ring-1 focus-within:ring-indigo-300 shadow-sm transition-colors w-1/2 mx-auto">
-                        <span className="text-indigo-800 font-bold mr-2 text-xs">Value:</span>
-                        <input type="number" value={mode} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) onModeChange(v); }} className="w-full bg-transparent text-right text-slate-900 font-bold outline-none font-mono custom-number-input" />
-                    </div>
-                ) : (
-                    <div className="flex justify-between items-center gap-2">
-                        <div className="flex items-center bg-white px-2 py-1 rounded border border-slate-300 focus-within:border-slate-500 shadow-sm transition-colors w-1/2">
-                            <span className="text-slate-500 font-bold mr-1 text-[10px]">Mean:</span>
-                            <input type="number" value={mode} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) onModeChange(v); }} className="w-full bg-transparent text-right text-slate-900 font-bold outline-none font-mono text-[11px] custom-number-input" />
-                        </div>
-                        <div className="flex flex-col items-end w-1/2">
-                            <div className="flex items-center bg-slate-50 px-2 py-1 rounded border border-slate-300 focus-within:border-purple-500 shadow-sm transition-colors w-full" title="Coefficient of Variation (Volatility %)">
-                                <span className="text-slate-500 font-bold mr-1 text-[10px]">CV%:</span>
-                                <input type="number" min="1" max="200" step="1" value={cv} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) onCvChange(Math.max(0.1, v)); }} className="w-full bg-transparent text-right text-slate-900 font-bold outline-none font-mono text-[11px] custom-number-input" />
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </div>
-        );
-
-        const RiskDropdownDiscrete = ({ label, mode, riskLevel, onRiskChange, onModeChange, unit, isFixed, onToggleFixed }) => (
-            <div className={`mb-3 p-3 rounded-lg border shadow-sm transition-colors ${isFixed ? 'bg-indigo-50/40 border-indigo-200' : 'bg-white border-slate-200'}`}>
-                <div className="flex justify-between items-center mb-2">
-                    <label className={`text-[11px] sm:text-xs font-bold ${isFixed ? 'text-indigo-900' : 'text-slate-800'}`}>{label}</label>
-                    <div className="flex items-center gap-2">
-                        <span className="text-[9px] font-medium text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-200">{unit}</span>
-                        <button onClick={onToggleFixed} className={`text-[8px] px-2 py-0.5 rounded font-bold uppercase tracking-wider transition-colors border ${isFixed ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'}`}>
-                            {isFixed ? 'Fixed' : 'Modeled'}
-                        </button>
-                    </div>
-                </div>
-
-                {isFixed ? (
-                    <div className="flex items-center bg-white px-2 py-1.5 rounded border border-indigo-400 focus-within:ring-1 focus-within:ring-indigo-300 shadow-sm transition-colors w-1/2 mx-auto">
-                        <span className="text-indigo-800 font-bold mr-2 text-xs">Value:</span>
-                        <input type="number" value={mode} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) onModeChange(v); }} className="w-full bg-transparent text-right text-slate-900 font-bold outline-none font-mono custom-number-input" />
-                    </div>
-                ) : (
-                    <div className="flex justify-between items-center gap-2">
-                        <div className="flex items-center bg-white px-2 py-1 rounded border border-slate-300 focus-within:border-slate-500 shadow-sm transition-colors w-1/2">
-                            <span className="text-slate-500 font-bold mr-1 text-[10px]">Base:</span>
-                            <input type="number" value={mode} onChange={e => { const v = parseFloat(e.target.value); if(!isNaN(v)) onModeChange(v); }} className="w-full bg-transparent text-right text-slate-900 font-bold outline-none font-mono text-[11px] custom-number-input" />
-                        </div>
-                        <div className="flex flex-col items-end w-1/2">
-                            <select value={riskLevel} onChange={e => onRiskChange(e.target.value)} className="text-[10px] w-full border border-slate-300 rounded px-1 py-1 bg-slate-50 focus:outline-none focus:border-purple-500 text-slate-700 font-medium cursor-pointer shadow-sm">
-                                <option value="Low">Low Risk</option>
-                                <option value="Standard">Std Risk</option>
-                                <option value="High">High Risk</option>
-                            </select>
-                        </div>
-                    </div>
-                )}
-            </div>
-        );
-
         const SLIDER_CONFIG = {
-            high: [
-                { id: 'C17', label: 'Electricity Price', unit: '€/MWh', min: 0, max: 200, step: 1, decimals: 0 },
-                { id: 'C43', label: 'EDBM Specific Energy', unit: 'kWh/kg', min: 6, max: 20, step: 0.1, decimals: 1 },
-                { id: 'C16', label: 'Lifetime (Years)', unit: 'yr', min: 5, max: 20, step: 1, decimals: 0 },
-                { id: 'C41', label: 'CAPEX EDBM', unit: '€', min: 1000000, max: 2000000, step: 10000, decimals: 0 },
-                { id: 'C69', label: 'Nitrogen Discharge Fee', unit: '€/kg N', min: 1, max: 2, step: 0.1, decimals: 1 },
-                { id: 'C54', label: 'Steam Cost', unit: '€/t', min: 25, max: 200, step: 1, decimals: 0 },
-                { id: 'C53', label: 'Steam Ratio in Stripper', unit: 'stm/liq', min: 0.15, max: 0.20, step: 0.001, decimals: 3 },
-                { id: 'C15', label: 'WACC', unit: '%', min: 0, max: 15, step: 0.1, scale: 100, decimals: 1 },
+            technical: [
+                { id: 'lifetime_proj_yrs', label: 'Lifetime (n)', unit: 'yr', min: 10, max: 20, step: 1, decimals: 0 },
+                { id: 'maint_factor',  label: 'Maint. Factor (CAPEX)', unit: '%', min: 2, max: 4, step: 0.1, scale: 100, decimals: 1 },
+                { id: 'e_filtr_kwh_yr', label: 'Energy Filtration/Pre-Treatment', unit: 'kWh/yr', min: 0, max: 1000000, step: 10000, decimals: 0 },
+                { id: 'espec_ro', label: 'RO Specific Energy', unit: 'kWh/m³', min: 1.0, max: 1.2, step: 0.05, decimals: 2 },
+                { id: 'espec_edbm', label: 'EDBM Specific Energy', unit: 'kWh/kg', min: 8.0, max: 10.0, step: 0.1, decimals: 1 },
+                { id: 'aux_el_factor', label: 'Aux. Electricity (Add.)', unit: '%', min: 2.5, max: 7.5, step: 0.1, scale: 100, decimals: 1 },
+                { id: 'steam_ratio', label: 'Steam Ratio in Stripper', unit: 'stm/liq', min: 0.165, max: 0.185, step: 0.001, decimals: 3 },
             ],
-            medium: [
-                { id: 'C20', label: 'CAPEX Aux. Works', unit: '€', min: 250000, max: 1500000, step: 10000, decimals: 0 },
-                { id: 'C27', label: 'RO Specific Energy', unit: 'kWh/m³', min: 0.75, max: 2.25, step: 0.05, decimals: 2 },
-                { id: 'C7',  label: 'Maint. Factor (CAPEX)', unit: '%', min: 2, max: 5, step: 0.1, scale: 100, decimals: 1 },
-                { id: 'C66', label: 'Water Discharge Fee', unit: '€/m³', min: 0, max: 0.02, step: 0.001, decimals: 3 },
-                { id: 'C49', label: 'CAPEX Stripper', unit: '€', min: 250000, max: 1000000, step: 10000, decimals: 0 },
+            capex_financing: [
+                { id: 'capex_filtr', label: 'CAPEX Filtration/Pre-Treatment', unit: '€', min: 0, max: 500000, step: 5000, decimals: 0 },
+                { id: 'capex_ro', label: 'CAPEX RO', unit: '€', min: 350000, max: 500000, step: 5000, decimals: 0 },
+                { id: 'capex_edbm', label: 'CAPEX EDBM', unit: '€', min: 1000000, max: 1600000, step: 10000, decimals: 0 },
+                { id: 'capex_stripper', label: 'CAPEX Stripper', unit: '€', min: 800000, max: 1200000, step: 10000, decimals: 0 },
+                { id: 'capex_aux', label: 'CAPEX Aux. Works', unit: '€', min: 250000, max: 750000, step: 10000, decimals: 0 },
+                { id: 'capex_subsidy', label: 'CAPEX Subsidy (Sub)', unit: '%', min: 0, max: 60, step: 1, scale: 100, decimals: 0 },
+                { id: 'wacc', label: 'WACC', unit: '%', min: 7, max: 9, step: 0.1, scale: 100, decimals: 1 },
             ],
-            low: [
-                { id: 'C58', label: 'Aux. Electricity (Add.)', unit: '%', min: 1, max: 10, step: 0.1, scale: 100, decimals: 1 },
-                { id: 'C25', label: 'CAPEX RO', unit: '€', min: 200000, max: 300000, step: 5000, decimals: 0 },
-                { id: 'C33', label: 'CAPEX Filtration', unit: '€', min: 20000, max: 60000, step: 1000, decimals: 0 },
-                { id: 'C61', label: 'Cost H2SO4', unit: '€/t', min: 50, max: 500, step: 5, decimals: 0 },
-                { id: 'C63', label: 'Cost NaOH', unit: '€/t', min: 150, max: 1500, step: 10, decimals: 0 },
+            opex_fees: [
+                { id: 'p_el', label: 'Electricity Price', unit: '€/MWh', min: 75, max: 200, step: 1, decimals: 0 },
+                { id: 'p_steam', label: 'Steam Cost', unit: '€/t', min: 35, max: 200, step: 1, decimals: 0 },
+                { id: 'p_h2so4', label: 'Cost H2SO4', unit: '€/t', min: 100, max: 300, step: 5, decimals: 0 },
+                { id: 'p_naoh', label: 'Cost NaOH', unit: '€/t', min: 300, max: 800, step: 10, decimals: 0 },
+                { id: 'fee_n', label: 'Nitrogen Discharge Fee', unit: '€/kg N', min: 1.2, max: 2.0, step: 0.1, decimals: 1 },
+                { id: 'fee_water', label: 'Water Discharge Fee', unit: '€/m³', min: 0, max: 0.008, step: 0.001, decimals: 3 },
             ]
         };
 
         const INITIAL_PARAMS = {
-            C3: 0.00,  C7: 0.03,  C14: 0.17, C15: 0.08, C16: 15,   C17: 130,  C18: 7920, C20: 750000,
-            C24: 15,   C25: 250000, C26: 69.77, C27: 1.75,
-            C32: 15,   C33: 40000, C34: 6.93,  C35: 0.15,
-            C40: 15,   C41: 1650000, C42: 31.4,  C43: 12,
-            C48: 15,   C49: 375000, C50: 0.17,  C51: 0.35, C52: 4711, C53: 0.175, C54: 85,
-            C58: 0.075, C60: 2.81,  C61: 160,   C62: 0.7,   C63: 485,
-            C65: 62.85, C66: 0.004, C68: 25.34, C69: 1.2,
-            CGrid: 400, RefPrice: 390
+            capex_subsidy: 0.40,  
+            maint_factor: 0.03,  
+            v_prod_nh3_yr: 1350, 
+            wacc: 0.08, 
+            lifetime_proj_yrs: 15,   
+            p_el: 130,  
+            capex_aux: 500000,
+            lifetime_ro_yrs: 15,   
+            capex_ro: 400000, 
+            v_feed_ro_yr: 550000, 
+            espec_ro: 1.1,
+            lifetime_filtr_yrs: 15,   
+            capex_filtr: 0, 
+            v_feed_filtr_yr: 550000,  
+            e_filtr_kwh_yr: 0,
+            lifetime_edbm_yrs: 15,   
+            capex_edbm: 1300000, 
+            m_prod_edbm_yr: 250000,  
+            espec_edbm: 9.0,
+            lifetime_stripper_yrs: 15,   
+            capex_stripper: 1000000, 
+            v_feed_stripper_yr: 37300,  
+            espec_stripper_el: 0.35, 
+            m_feed_stripper_kg_yr: 37311120, 
+            steam_ratio: 0.175, 
+            p_steam: 85,
+            aux_el_factor: 0.05, 
+            m_h2so4_yr: 22250,  
+            p_h2so4: 160,   
+            m_naoh_yr: 5500,   
+            p_naoh: 485,
+            v_water_rec_yr: 500000, 
+            fee_water: 0.004, 
+            m_n_avoided_yr: 206000, 
+            fee_n: 1.2,
+            grid_factor: 400, 
+            p_ref_nh3: 390
         };
 
         const App = () => {
             const [params, setParams] = useState(INITIAL_PARAMS);
-            const [activeTab, setActiveTab] = useState('high'); 
+            const [activeTab, setActiveTab] = useState('technical'); 
             const [dashboardView, setDashboardView] = useState('economics'); 
             const [showProcessFlow, setShowProcessFlow] = useState(false);
             const [showMonteCarlo, setShowMonteCarlo] = useState(false);
+            const [showFlowModal, setShowFlowModal] = useState(false);
             const [snapshotParams, setSnapshotParams] = useState(null);
             
             const [imageError, setImageError] = useState(false);
@@ -571,7 +543,7 @@
             const [autoRecalculate, setAutoRecalculate] = useState(true);
             const prevMcTrigger = useRef(0);
 
-            // Globální event listener pro odchycení uvolnění myši/displeje kdekoli na obrazovce
+            // Global event listener for catching mouse/touch up anywhere on the screen
             useEffect(() => {
                 const handleUp = () => setIsDragging(false);
                 window.addEventListener('pointerup', handleUp);
@@ -583,24 +555,27 @@
             }, []);
 
             const [riskConfig, setRiskConfig] = useState({
-                C43: { min: 8.0, max: 18.0, gamma: 4, isFixed: false },
-                C27: { min: 1.25, max: 2.0, gamma: 4, isFixed: false },
-                C53: { min: 0.165, max: 0.185, gamma: 4, isFixed: false },
-                C54: { min: 25, max: 200, gamma: 4, isFixed: false },
-                C7:  { min: 0.02, max: 0.10, gamma: 4, isFixed: false },
-                C16: { min: 10, max: 20, gamma: 4, isFixed: false },
-                C15: { min: 0.05, max: 0.10, gamma: 4, isFixed: false },
-                C41: { min: 1269000, max: 3426000, gamma: 4, isFixed: false },
-                C20: { min: 250000, max: 1500000, gamma: 4, isFixed: false },
-                C25: { min: 212500, max: 350000, gamma: 4, isFixed: false },
-                C33: { min: 34000, max: 56000, gamma: 4, isFixed: false },
-                C49: { min: 318750, max: 525000, gamma: 4, isFixed: false },
-                C17: { cv: 40, isFixed: false },
-                C61: { cv: 40, isFixed: false },
-                C63: { cv: 40, isFixed: false },
-                RefPrice: { cv: 20, isFixed: false },
-                C69: { risk: 'Standard', isFixed: false },
-                C66: { risk: 'Standard', isFixed: false }
+                espec_edbm: { min: 8.0, max: 10.0, gamma: 4, isFixed: false },
+                espec_ro: { min: 1.0, max: 1.2, gamma: 4, isFixed: false },
+                steam_ratio: { min: 0.165, max: 0.185, gamma: 4, isFixed: false },
+                p_steam: { min: 35, max: 200, gamma: 4, isFixed: false },
+                maint_factor:  { min: 0.02, max: 0.04, gamma: 4, isFixed: false },
+                lifetime_proj_yrs: { min: 10, max: 20, gamma: 4, isFixed: false },
+                wacc: { min: 0.07, max: 0.09, gamma: 4, isFixed: false },
+                capex_edbm: { min: 1000000, max: 1600000, gamma: 4, isFixed: false },
+                capex_aux: { min: 250000, max: 750000, gamma: 4, isFixed: false },
+                capex_ro: { min: 350000, max: 500000, gamma: 4, isFixed: false },
+                capex_filtr: { min: 0, max: 500000, gamma: 4, isFixed: true },
+                capex_stripper: { min: 800000, max: 1200000, gamma: 4, isFixed: false },
+                p_el: { min: 75, max: 200, gamma: 4, isFixed: false },
+                p_h2so4: { min: 100, max: 300, gamma: 4, isFixed: false },
+                p_naoh: { min: 300, max: 800, gamma: 4, isFixed: false },
+                p_ref_nh3: { cv: 20, isFixed: true },
+                fee_n: { min: 1.2, max: 2.0, gamma: 4, isFixed: true },
+                fee_water: { min: 0.0, max: 0.008, gamma: 4, isFixed: true },
+                e_filtr_kwh_yr: { min: 0, max: 1000000, gamma: 4, isFixed: true },
+                aux_el_factor: { min: 0.025, max: 0.075, gamma: 4, isFixed: false },
+                capex_subsidy: { min: 0.0, max: 0.6, gamma: 4, isFixed: true }
             });
 
             const chartRef = useRef(null);
@@ -615,57 +590,57 @@
                     return (r * factor) / (factor - 1);
                 };
 
-                const calcAnnualCapex = (capex, n) => capex * annuity(p.C15, n) * (1 - p.C3);
+                const calcAnnualCapex = (capex, n) => capex * annuity(p.wacc, n) * (1 - p.capex_subsidy);
 
-                const capex_ann_ostatni = calcAnnualCapex(p.C20, p.C16);
-                const capex_ann_ro = calcAnnualCapex(p.C25, p.C24);
-                const capex_ann_filtr = calcAnnualCapex(p.C33, p.C32);
-                const capex_ann_edbm = calcAnnualCapex(p.C41, p.C40);
-                const capex_ann_stripper = calcAnnualCapex(p.C49, p.C48);
+                const capex_ann_ostatni = calcAnnualCapex(p.capex_aux, p.lifetime_proj_yrs);
+                const capex_ann_ro = calcAnnualCapex(p.capex_ro, p.lifetime_proj_yrs);
+                const capex_ann_filtr = calcAnnualCapex(p.capex_filtr, p.lifetime_proj_yrs);
+                const capex_ann_edbm = calcAnnualCapex(p.capex_edbm, p.lifetime_proj_yrs);
+                const capex_ann_stripper = calcAnnualCapex(p.capex_stripper, p.lifetime_proj_yrs);
 
                 const total_annual_capex = capex_ann_ostatni + capex_ann_ro + capex_ann_filtr + capex_ann_edbm + capex_ann_stripper;
-                const total_hard_capex_gross = p.C20 + p.C25 + p.C33 + p.C41 + p.C49;
-                const total_hard_capex_net = total_hard_capex_gross * (1 - p.C3);
-                const opex_maint = p.C7 * total_hard_capex_gross;
+                const total_hard_capex_gross = p.capex_aux + p.capex_ro + p.capex_filtr + p.capex_edbm + p.capex_stripper;
+                const total_hard_capex_net = total_hard_capex_gross * (1 - p.capex_subsidy);
+                const opex_maint = p.maint_factor * total_hard_capex_gross;
                 
-                const E_RO = (p.C26 * p.C27 * p.C18) / 1000;
-                const E_Filtr = (p.C34 * p.C35 * p.C18) / 1000;
-                const E_EDBM = (p.C42 * p.C43 * p.C18) / 1000;
-                const E_Stripper = (p.C50 * p.C51 * p.C18) / 1000;
+                const E_RO = (p.v_feed_ro_yr * p.espec_ro) / 1000;
+                const E_Filtr = (p.e_filtr_kwh_yr) / 1000;
+                const E_EDBM = (p.m_prod_edbm_yr * p.espec_edbm) / 1000;
+                const E_Stripper = (p.v_feed_stripper_yr * p.espec_stripper_el) / 1000;
                 const total_MWh = E_RO + E_Filtr + E_EDBM + E_Stripper;
-                const opex_electricity = total_MWh * (1 + p.C58) * p.C17;
+                const opex_electricity = total_MWh * (1 + p.aux_el_factor) * p.p_el;
 
-                const opex_steam = (p.C52 * p.C18 * p.C53 * p.C54) / 1000;
-                const cost_h2so4 = (p.C60 * p.C18 * p.C61) / 1000;
-                const cost_naoh = (p.C62 * p.C18 * p.C63) / 1000;
+                const opex_steam = (p.m_feed_stripper_kg_yr * p.steam_ratio * p.p_steam) / 1000;
+                const cost_h2so4 = (p.m_h2so4_yr * p.p_h2so4) / 1000;
+                const cost_naoh = (p.m_naoh_yr * p.p_naoh) / 1000;
                 const opex_chem = cost_h2so4 + cost_naoh;
 
                 const total_annual_opex = opex_maint + opex_electricity + opex_steam + opex_chem;
 
-                const rev_N = p.C68 * p.C18 * p.C69;
-                const rev_water = p.C65 * p.C18 * p.C66;
+                const rev_N = p.m_n_avoided_yr * p.fee_n;
+                const rev_water = p.v_water_rec_yr * p.fee_water;
                 const total_revenue = rev_N + rev_water;
                 
                 const total_positive_costs = total_annual_capex + total_annual_opex;
-                const annual_production = p.C14 * p.C18;
+                const annual_production = p.v_prod_nh3_yr;
                 const total_annual_cost_net = total_annual_capex + total_annual_opex - total_revenue;
                 const lcop = annual_production > 0 ? total_annual_cost_net / annual_production : 0;
 
                 const elec_share = total_positive_costs > 0 ? (opex_electricity / total_positive_costs) * 100 : 0;
                 const steam_share = total_positive_costs > 0 ? (opex_steam / total_positive_costs) * 100 : 0;
 
-                const savings_virgin_ammonia = annual_production * p.RefPrice;
+                const savings_virgin_ammonia = annual_production * p.p_ref_nh3;
                 const total_economic_benefit = savings_virgin_ammonia + total_revenue; 
                 const annual_cash_flow = total_economic_benefit - total_annual_opex;
 
                 const payback_years = annual_cash_flow > 0 ? total_hard_capex_net / annual_cash_flow : 999;
-                const horizon_npv = Math.round(p.C16);
+                const horizon_npv = Math.round(p.lifetime_proj_yrs);
                 const total_return = (annual_cash_flow * horizon_npv) - total_hard_capex_net;
                 const roi = (total_return / total_hard_capex_net) * 100;
 
                 let npv = -total_hard_capex_net;
                 for (let t = 1; t <= horizon_npv; t++) {
-                    npv += annual_cash_flow / Math.pow(1 + p.C15, t);
+                    npv += annual_cash_flow / Math.pow(1 + p.wacc, t);
                 }
 
                 let irr = 0;
@@ -681,7 +656,7 @@
                 }
                 
                 const dscr = total_annual_capex > 0 ? annual_cash_flow / total_annual_capex : 0;
-                const total_co2_kg = total_MWh * p.CGrid;
+                const total_co2_kg = total_MWh * p.grid_factor;
                 const carbon_intensity = annual_production > 0 ? total_co2_kg / annual_production : 0; 
                 const water_recovery_rate = 90;
 
@@ -718,7 +693,7 @@
                 
                 setIsSimulating(true);
 
-                // Zpoždění nastaveno na 650ms, aby CSS animace vlny (600ms) měla čas v klidu doběhnout do konce.
+                // Delay set to 650ms to allow CSS wave animation (600ms) to complete smoothly.
                 const timerId = setTimeout(() => {
                     const iterations = Math.max(100, Math.min(100000, mcIterations || 10000)); 
                     let successCount = 0;
@@ -728,51 +703,31 @@
                     for (let i = 0; i < iterations; i++) {
                         const p = { ...params };
                         
-                        p.C43 = riskConfig.C43.isFixed ? params.C43 : rPERT(riskConfig.C43.min, params.C43, riskConfig.C43.max, riskConfig.C43.gamma);
-                        p.C27 = riskConfig.C27.isFixed ? params.C27 : rPERT(riskConfig.C27.min, params.C27, riskConfig.C27.max, riskConfig.C27.gamma);
-                        p.C53 = riskConfig.C53.isFixed ? params.C53 : rPERT(riskConfig.C53.min, params.C53, riskConfig.C53.max, riskConfig.C53.gamma);
-                        p.C54 = riskConfig.C54.isFixed ? params.C54 : rPERT(riskConfig.C54.min, params.C54, riskConfig.C54.max, riskConfig.C54.gamma);
-                        p.C7 =  riskConfig.C7.isFixed  ? params.C7  : rPERT(riskConfig.C7.min, params.C7, riskConfig.C7.max, riskConfig.C7.gamma);
-                        p.C16 = riskConfig.C16.isFixed ? params.C16 : rPERT(riskConfig.C16.min, params.C16, riskConfig.C16.max, riskConfig.C16.gamma);
-                        p.C15 = riskConfig.C15.isFixed ? params.C15 : rPERT(riskConfig.C15.min, params.C15, riskConfig.C15.max, riskConfig.C15.gamma);
-                        p.C41 = riskConfig.C41.isFixed ? params.C41 : rPERT(riskConfig.C41.min, params.C41, riskConfig.C41.max, riskConfig.C41.gamma); 
-                        p.C20 = riskConfig.C20.isFixed ? params.C20 : rPERT(riskConfig.C20.min, params.C20, riskConfig.C20.max, riskConfig.C20.gamma);
-                        p.C25 = riskConfig.C25.isFixed ? params.C25 : rPERT(riskConfig.C25.min, params.C25, riskConfig.C25.max, riskConfig.C25.gamma);
-                        p.C33 = riskConfig.C33.isFixed ? params.C33 : rPERT(riskConfig.C33.min, params.C33, riskConfig.C33.max, riskConfig.C33.gamma);
-                        p.C49 = riskConfig.C49.isFixed ? params.C49 : rPERT(riskConfig.C49.min, params.C49, riskConfig.C49.max, riskConfig.C49.gamma);
-                        
-                        // OPAVA: Správné čtení hodnoty CV z objektu riskConfig namísto neexistující "vol"
-                        p.C17 = riskConfig.C17.isFixed ? params.C17 : rLogNorm(params.C17, riskConfig.C17.cv);
-                        p.C61 = riskConfig.C61.isFixed ? params.C61 : rLogNorm(params.C61, riskConfig.C61.cv);
-                        p.C63 = riskConfig.C63.isFixed ? params.C63 : rLogNorm(params.C63, riskConfig.C63.cv);
-                        
-                        // OPRAVA: RefPrice.cv nyní korektně přijímá číslo na základě dropdown výběru uživatele
-                        const iterRefPrice = riskConfig.RefPrice.isFixed ? params.RefPrice : rLogNorm(params.RefPrice, riskConfig.RefPrice.cv);
-                        p.RefPrice = iterRefPrice; 
+                        p.espec_edbm = riskConfig.espec_edbm.isFixed ? params.espec_edbm : rPERT(riskConfig.espec_edbm.min, params.espec_edbm, riskConfig.espec_edbm.max, riskConfig.espec_edbm.gamma);
+                        p.espec_ro = riskConfig.espec_ro.isFixed ? params.espec_ro : rPERT(riskConfig.espec_ro.min, params.espec_ro, riskConfig.espec_ro.max, riskConfig.espec_ro.gamma);
+                        p.steam_ratio = riskConfig.steam_ratio.isFixed ? params.steam_ratio : rPERT(riskConfig.steam_ratio.min, params.steam_ratio, riskConfig.steam_ratio.max, riskConfig.steam_ratio.gamma);
+                        p.p_steam = riskConfig.p_steam.isFixed ? params.p_steam : rPERT(riskConfig.p_steam.min, params.p_steam, riskConfig.p_steam.max, riskConfig.p_steam.gamma);
+                        p.maint_factor =  riskConfig.maint_factor.isFixed  ? params.maint_factor  : rPERT(riskConfig.maint_factor.min, params.maint_factor, riskConfig.maint_factor.max, riskConfig.maint_factor.gamma);
+                        p.lifetime_proj_yrs = riskConfig.lifetime_proj_yrs.isFixed ? params.lifetime_proj_yrs : rPERT(riskConfig.lifetime_proj_yrs.min, params.lifetime_proj_yrs, riskConfig.lifetime_proj_yrs.max, riskConfig.lifetime_proj_yrs.gamma);
+                        p.wacc = riskConfig.wacc.isFixed ? params.wacc : rPERT(riskConfig.wacc.min, params.wacc, riskConfig.wacc.max, riskConfig.wacc.gamma);
+                        p.capex_edbm = riskConfig.capex_edbm.isFixed ? params.capex_edbm : rPERT(riskConfig.capex_edbm.min, params.capex_edbm, riskConfig.capex_edbm.max, riskConfig.capex_edbm.gamma); 
+                        p.capex_aux = riskConfig.capex_aux.isFixed ? params.capex_aux : rPERT(riskConfig.capex_aux.min, params.capex_aux, riskConfig.capex_aux.max, riskConfig.capex_aux.gamma);
+                        p.capex_ro = riskConfig.capex_ro.isFixed ? params.capex_ro : rPERT(riskConfig.capex_ro.min, params.capex_ro, riskConfig.capex_ro.max, riskConfig.capex_ro.gamma);
+                        p.capex_filtr = riskConfig.capex_filtr.isFixed ? params.capex_filtr : rPERT(riskConfig.capex_filtr.min, params.capex_filtr, riskConfig.capex_filtr.max, riskConfig.capex_filtr.gamma);
+                        p.capex_stripper = riskConfig.capex_stripper.isFixed ? params.capex_stripper : rPERT(riskConfig.capex_stripper.min, params.capex_stripper, riskConfig.capex_stripper.max, riskConfig.capex_stripper.gamma);
+                        p.e_filtr_kwh_yr = riskConfig.e_filtr_kwh_yr.isFixed ? params.e_filtr_kwh_yr : rPERT(riskConfig.e_filtr_kwh_yr.min, params.e_filtr_kwh_yr, riskConfig.e_filtr_kwh_yr.max, riskConfig.e_filtr_kwh_yr.gamma);
+                        p.aux_el_factor = riskConfig.aux_el_factor.isFixed ? params.aux_el_factor : rPERT(riskConfig.aux_el_factor.min, params.aux_el_factor, riskConfig.aux_el_factor.max, riskConfig.aux_el_factor.gamma);
+                        p.capex_subsidy = riskConfig.capex_subsidy.isFixed ? params.capex_subsidy : rPERT(riskConfig.capex_subsidy.min, params.capex_subsidy, riskConfig.capex_subsidy.max, riskConfig.capex_subsidy.gamma);
 
-                        if (riskConfig.C69.isFixed) {
-                            p.C69 = params.C69;
-                        } else {
-                            const nRisk = riskConfig.C69.risk;
-                            const uN = Math.random();
-                            let multN = 1.0;
-                            if (nRisk === 'High') multN = (uN < 0.4 ? 1.0 : (uN < 0.8 ? 1.25 : 1.50));
-                            else if (nRisk === 'Low') multN = (uN < 0.8 ? 1.0 : (uN < 0.95 ? 1.25 : 1.50));
-                            else multN = (uN < 0.6 ? 1.0 : (uN < 0.9 ? 1.25 : 1.50));
-                            p.C69 = params.C69 * multN;
-                        }
+                        p.p_el = riskConfig.p_el.isFixed ? params.p_el : rPERT(riskConfig.p_el.min, params.p_el, riskConfig.p_el.max, riskConfig.p_el.gamma);
+                        p.p_h2so4 = riskConfig.p_h2so4.isFixed ? params.p_h2so4 : rPERT(riskConfig.p_h2so4.min, params.p_h2so4, riskConfig.p_h2so4.max, riskConfig.p_h2so4.gamma);
+                        p.p_naoh = riskConfig.p_naoh.isFixed ? params.p_naoh : rPERT(riskConfig.p_naoh.min, params.p_naoh, riskConfig.p_naoh.max, riskConfig.p_naoh.gamma);
                         
-                        if (riskConfig.C66.isFixed) {
-                            p.C66 = params.C66;
-                        } else {
-                            const wRisk = riskConfig.C66.risk;
-                            const uW = Math.random();
-                            let multW = 1.0;
-                            if (wRisk === 'High') multW = (uW < 0.4 ? 1.0 : (uW < 0.8 ? 1.25 : 1.50));
-                            else if (wRisk === 'Low') multW = (uW < 0.8 ? 1.0 : (uW < 0.95 ? 1.25 : 1.50));
-                            else multW = (uW < 0.6 ? 1.0 : (uW < 0.9 ? 1.25 : 1.50)); 
-                            p.C66 = params.C66 * multW;
-                        }
+                        const iterRefPrice = riskConfig.p_ref_nh3.isFixed ? params.p_ref_nh3 : rLogNorm(params.p_ref_nh3, riskConfig.p_ref_nh3.cv);
+                        p.p_ref_nh3 = iterRefPrice; 
+
+                        p.fee_n = riskConfig.fee_n.isFixed ? params.fee_n : rPERT(riskConfig.fee_n.min, params.fee_n, riskConfig.fee_n.max, riskConfig.fee_n.gamma);
+                        p.fee_water = riskConfig.fee_water.isFixed ? params.fee_water : rPERT(riskConfig.fee_water.min, params.fee_water, riskConfig.fee_water.max, riskConfig.fee_water.gamma);
 
                         const res = calculateResults(p);
                         lcopArray.push(res.lcop);
@@ -1041,7 +996,7 @@
                 let maxVal = Math.ceil(Math.max(...lcopArray) / 10) * 10;
                 
                 // Oprava osy X: Zajištění, že se na osu vždy vejde Referenční cena, i když LCOP vyjde zcela mimo
-                const currentRefPrice = params.RefPrice;
+                const currentRefPrice = params.p_ref_nh3;
                 if (currentRefPrice < minVal) {
                     minVal = Math.floor(currentRefPrice / 10) * 10;
                 }
@@ -1090,7 +1045,7 @@
                                     lineMean: { 
                                         type: 'line', 
                                         scaleID: 'x', 
-                                        value: ((params.RefPrice - minVal) / binWidth) - 0.5, 
+                                        value: ((params.p_ref_nh3 - minVal) / binWidth) - 0.5, 
                                         borderColor: '#ef4444', 
                                         borderWidth: 2, 
                                         borderDash: [5, 5], 
@@ -1123,8 +1078,8 @@
             }, [mcResults, showMonteCarlo]);
 
 
-            const lcopDiff = currentResults.lcop - params.RefPrice;
-            const lcopDiffPercent = (Math.abs(lcopDiff) / params.RefPrice) * 100;
+            const lcopDiff = currentResults.lcop - params.p_ref_nh3;
+            const lcopDiffPercent = (Math.abs(lcopDiff) / params.p_ref_nh3) * 100;
             const lcopStatus = lcopDiff > 0 ? "more expensive" : "cheaper";
 
             const renderEconomicsView = () => (
@@ -1142,14 +1097,14 @@
                              <div className="flex justify-between items-center text-slate-400">
                                 <span>Ref Price:</span>
                                 <div className="flex flex-col items-end">
-                                    {snapshotParams && Math.abs(snapshotParams.RefPrice - params.RefPrice) > 0.1 && (
-                                         <span className="text-[9px] text-slate-400 font-medium mb-0.5 animate-pulse">Ref: {snapshotParams.RefPrice}</span>
+                                    {snapshotParams && Math.abs(snapshotParams.p_ref_nh3 - params.p_ref_nh3) > 0.1 && (
+                                         <span className="text-[9px] text-slate-400 font-medium mb-0.5 animate-pulse">Ref: {snapshotParams.p_ref_nh3}</span>
                                     )}
                                     <div className="flex items-center bg-white border border-slate-200 rounded px-1 py-0.5">
                                         <input 
                                             type="number" step="1"
-                                            value={params.RefPrice}
-                                            onChange={(e) => setParams(prev => ({...prev, RefPrice: parseFloat(e.target.value) || 0}))}
+                                            value={params.p_ref_nh3}
+                                            onChange={(e) => setParams(prev => ({...prev, p_ref_nh3: parseFloat(e.target.value) || 0}))}
                                             className="w-10 sm:w-12 text-right font-mono font-bold text-slate-600 focus:outline-none bg-transparent"
                                         />
                                         <span className="ml-0.5 text-[8px] sm:text-[10px] text-slate-500">€</span>
@@ -1159,11 +1114,18 @@
                             <div className={`font-medium mt-0.5 sm:mt-1 ${lcopDiff > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
                                 {lcopDiffPercent.toFixed(1)}% {lcopStatus}
                             </div>
+                            
+                            <div className="mt-1.5 pt-1.5 border-t border-slate-100">
+                                <button onClick={() => setShowFlowModal(true)} className="flex items-center gap-1.5 text-[9px] sm:text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold transition-colors w-full justify-center bg-indigo-50 hover:bg-indigo-100 py-1 rounded">
+                                    <LucideIcon name="database" className="w-3 h-3" />
+                                    Mass Balance
+                                </button>
+                            </div>
                        </div>
                     </KPICard>
 
                     <KPICard 
-                        label="Total Net CAPEX" 
+                        label="NET CAPEX" 
                         value={currentResults.total_hard_capex_net.toLocaleString('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, notation: window.innerWidth < 640 ? "compact" : "standard" })} 
                         rawValue={currentResults.total_hard_capex_net}
                         tooltipAlign="right"
@@ -1172,19 +1134,19 @@
                         comparisonType="cost"
                     >
                         <div className="mt-2 bg-slate-50 p-1 sm:p-1.5 rounded border border-slate-100 flex justify-between items-center">
-                            <label className="text-[9px] sm:text-[10px] font-semibold text-slate-500">Subsidy</label>
+                            <label className="text-[9px] sm:text-[10px] font-bold text-slate-900">Subsidy</label>
                             <div className="flex flex-col items-end">
-                                {snapshotParams && Math.abs(snapshotParams.C3 - params.C3) > 0.001 && (
-                                     <span className="text-[9px] text-slate-400 font-medium mb-0.5 animate-pulse">Ref: {(snapshotParams.C3 * 100).toFixed(0)}%</span>
+                                {snapshotParams && Math.abs(snapshotParams.capex_subsidy - params.capex_subsidy) > 0.001 && (
+                                     <span className="text-[9px] text-slate-400 font-medium mb-0.5 animate-pulse">Ref: {(snapshotParams.capex_subsidy * 100).toFixed(0)}%</span>
                                 )}
-                                <div className="flex items-center bg-white border border-slate-200 rounded px-1 sm:px-1.5 py-0.5">
+                                <div className="flex items-center bg-white border border-slate-300 rounded px-1 sm:px-1.5 py-0.5">
                                     <input 
-                                        type="number" min="0" max="100" step="1"
-                                        value={(params.C3 * 100).toFixed(0)}
-                                        onChange={(e) => setParams(prev => ({...prev, C3: parseFloat(e.target.value)/100 || 0}))}
-                                        className="w-6 sm:w-8 text-right text-[10px] sm:text-xs font-mono focus:outline-none"
+                                        type="number" min="0" max="60" step="1"
+                                        value={(params.capex_subsidy * 100).toFixed(0)}
+                                        onChange={(e) => setParams(prev => ({...prev, capex_subsidy: Math.min(60, Math.max(0, parseFloat(e.target.value)))/100 || 0}))}
+                                        className="w-6 sm:w-8 text-right text-[10px] sm:text-xs font-bold font-mono focus:outline-none text-slate-900"
                                     />
-                                    <span className="ml-0.5 text-[9px] sm:text-[10px] text-slate-500">%</span>
+                                    <span className="ml-0.5 text-[9px] sm:text-[10px] font-bold text-slate-900">%</span>
                                 </div>
                             </div>
                         </div>
@@ -1247,7 +1209,7 @@
                     >
                          <div className="text-[9px] sm:text-[10px] text-slate-400 mt-1 flex flex-col gap-1">
                             <div className="flex justify-between border-t border-slate-100 pt-1 mt-0.5">
-                                <span>IRR: <span className={`font-bold ${currentResults.irr > params.C15*100 ? 'text-emerald-600' : 'text-orange-500'}`}>{currentResults.irr.toFixed(1)}%</span></span>
+                                <span>IRR: <span className={`font-bold ${currentResults.irr > params.wacc*100 ? 'text-emerald-600' : 'text-orange-500'}`}>{currentResults.irr.toFixed(1)}%</span></span>
                                 <span>ROI: {currentResults.roi.toFixed(0)}%</span>
                             </div>
                          </div>
@@ -1262,20 +1224,20 @@
                         comparisonType="cost"
                     >
                          <div className="mt-2 bg-slate-50 p-1 sm:p-1.5 rounded border border-slate-100 flex justify-between items-center">
-                            <label className="text-[9px] sm:text-[10px] font-semibold text-slate-500">Subsidy</label>
+                            <label className="text-[9px] sm:text-[10px] font-bold text-slate-900">Subsidy</label>
                             
                             <div className="flex flex-col items-end">
-                                {snapshotParams && Math.abs(snapshotParams.C3 - params.C3) > 0.001 && (
-                                     <span className="text-[9px] text-slate-400 font-medium mb-0.5 animate-pulse">Ref: {(snapshotParams.C3 * 100).toFixed(0)}%</span>
+                                {snapshotParams && Math.abs(snapshotParams.capex_subsidy - params.capex_subsidy) > 0.001 && (
+                                     <span className="text-[9px] text-slate-400 font-medium mb-0.5 animate-pulse">Ref: {(snapshotParams.capex_subsidy * 100).toFixed(0)}%</span>
                                 )}
-                                <div className="flex items-center bg-white border border-slate-200 rounded px-1 sm:px-1.5 py-0.5">
+                                <div className="flex items-center bg-white border border-slate-300 rounded px-1 sm:px-1.5 py-0.5">
                                     <input 
-                                        type="number" min="0" max="100" step="1"
-                                        value={(params.C3 * 100).toFixed(0)}
-                                        onChange={(e) => setParams(prev => ({...prev, C3: parseFloat(e.target.value)/100 || 0}))}
-                                        className="w-6 sm:w-8 text-right text-[10px] sm:text-xs font-mono focus:outline-none"
+                                        type="number" min="0" max="60" step="1"
+                                        value={(params.capex_subsidy * 100).toFixed(0)}
+                                        onChange={(e) => setParams(prev => ({...prev, capex_subsidy: Math.min(60, Math.max(0, parseFloat(e.target.value)))/100 || 0}))}
+                                        className="w-6 sm:w-8 text-right text-[10px] sm:text-xs font-bold font-mono focus:outline-none text-slate-900"
                                     />
-                                    <span className="ml-0.5 text-[9px] sm:text-[10px] text-slate-500">%</span>
+                                    <span className="ml-0.5 text-[9px] sm:text-[10px] font-bold text-slate-900">%</span>
                                 </div>
                             </div>
                         </div>
@@ -1299,16 +1261,16 @@
                              <div className="flex justify-between items-end mb-1">
                                 <span className="text-[9px] sm:text-[10px] text-slate-500 font-semibold">Grid Factor (gCO2eq/kWh)</span>
                                 <div className="flex flex-col items-end">
-                                    {snapshotParams && Math.abs(snapshotParams.CGrid - params.CGrid) > 1 && (
-                                         <span className="text-[9px] text-slate-400 font-medium mb-0.5 animate-pulse">Ref: {snapshotParams.CGrid.toFixed(0)}</span>
+                                    {snapshotParams && Math.abs(snapshotParams.grid_factor - params.grid_factor) > 1 && (
+                                         <span className="text-[9px] text-slate-400 font-medium mb-0.5 animate-pulse">Ref: {snapshotParams.grid_factor.toFixed(0)}</span>
                                     )}
-                                    <span className="text-[9px] sm:text-[10px] font-mono font-bold text-slate-700">{params.CGrid.toFixed(0)}</span>
+                                    <span className="text-[9px] sm:text-[10px] font-mono font-bold text-slate-700">{params.grid_factor.toFixed(0)}</span>
                                 </div>
                              </div>
                              <input 
                                 type="range" min="0" max="1000" step="10"
-                                value={params.CGrid}
-                                onChange={(e) => setParams(prev => ({...prev, CGrid: parseFloat(e.target.value)}))}
+                                value={params.grid_factor}
+                                onChange={(e) => setParams(prev => ({...prev, grid_factor: parseFloat(e.target.value)}))}
                              />
                         </div>
                     </KPICard>
@@ -1434,19 +1396,22 @@
                         <div className="md:w-[35%] lg:w-1/3 flex flex-col h-[400px] md:h-full order-2 md:order-1">
                             <Card className="flex flex-col h-full p-0 overflow-hidden">
                                 <div className="flex bg-slate-100 border-b border-slate-200 p-1 shrink-0">
-                                    {['high', 'medium', 'low'].map(level => (
-                                        <button
-                                            key={level}
-                                            onClick={() => setActiveTab(level)}
-                                            className={`flex-1 py-1 sm:py-1.5 text-[10px] sm:text-xs font-medium rounded-md capitalize transition-all ${
-                                                activeTab === level 
-                                                ? 'bg-white text-slate-900 shadow-sm text-orange-600' 
-                                                : 'text-slate-500 hover:text-slate-700'
-                                            }`}
-                                        >
-                                            {level} Impact
-                                        </button>
-                                    ))}
+                                    {['technical', 'capex_financing', 'opex_fees'].map(level => {
+                                        const labels = { technical: 'Technical', capex_financing: 'CAPEX & Finance', opex_fees: 'Energy & Fees' };
+                                        return (
+                                            <button
+                                                key={level}
+                                                onClick={() => setActiveTab(level)}
+                                                className={`flex-1 py-1 sm:py-1.5 text-[10px] sm:text-xs font-medium rounded-md transition-all ${
+                                                    activeTab === level 
+                                                    ? 'bg-white text-slate-900 shadow-sm text-orange-600' 
+                                                    : 'text-slate-500 hover:text-slate-700'
+                                                }`}
+                                            >
+                                                {labels[level]}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
                                 <div className="flex-1 overflow-y-auto custom-scrollbar p-2 sm:p-3 overflow-x-hidden">
                                     <div className="w-full">
@@ -1495,6 +1460,56 @@
                             </Card>
                         </div>
                     </div>
+
+                    {/* MODAL OVERLAY FOR MASS FLOWS */}
+                    {showFlowModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm modal-backdrop" onClick={() => setShowFlowModal(false)}>
+                            <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md flex flex-col overflow-hidden modal-content" onClick={e => e.stopPropagation()}>
+                                <div className="flex justify-between items-center p-3 sm:p-4 border-b border-slate-100 bg-slate-50">
+                                    <div className="flex items-center gap-2">
+                                        <LucideIcon name="database" className="w-5 h-5 text-indigo-600" />
+                                        <h3 className="font-bold text-slate-800 text-lg">Fixed Flows & Annual Balance</h3>
+                                    </div>
+                                    <button onClick={() => setShowFlowModal(false)} className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
+                                        <LucideIcon name="x" className="w-5 h-5" />
+                                    </button>
+                                </div>
+                                <div className="p-4 sm:p-5 bg-white">
+                                    <table className="w-full text-left text-sm text-slate-600">
+                                        <tbody>
+                                            <tr className="border-b border-slate-100">
+                                                <td className="py-2 font-medium">RO Feed</td>
+                                                <td className="py-2 text-right font-bold text-slate-800">{params.v_feed_ro_yr.toLocaleString()} m³/yr</td>
+                                            </tr>
+                                            <tr className="border-b border-slate-100">
+                                                <td className="py-2 font-medium">EDBM NH3 Production</td>
+                                                <td className="py-2 text-right font-bold text-slate-800">{params.m_prod_edbm_yr.toLocaleString()} kg/yr</td>
+                                            </tr>
+                                            <tr className="border-b border-slate-100">
+                                                <td className="py-2 font-medium">Aqueous Ammonia Production (20%)</td>
+                                                <td className="py-2 text-right font-bold text-slate-800">{params.v_prod_nh3_yr.toLocaleString()} m³/yr</td>
+                                            </tr>
+                                            <tr className="border-b border-slate-100">
+                                                <td className="py-2 font-medium">Reclaimed Water</td>
+                                                <td className="py-2 text-right font-bold text-slate-800">{params.v_water_rec_yr.toLocaleString()} m³/yr</td>
+                                            </tr>
+                                            <tr className="border-b border-slate-100">
+                                                <td className="py-2 font-medium">Avoided Nitrogen</td>
+                                                <td className="py-2 text-right font-bold text-slate-800">{params.m_n_avoided_yr.toLocaleString()} kg/yr</td>
+                                            </tr>
+                                            <tr>
+                                                <td className="py-2 font-medium">Stripper Feed</td>
+                                                <td className="py-2 text-right font-bold text-slate-800">{params.v_feed_stripper_yr.toLocaleString()} t/yr</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                    <div className="mt-4 text-[10px] text-slate-400 bg-slate-50 p-2 rounded border border-slate-100">
+                                        These values are fixed as design parameters determining the overall capacity and mass balance of the technology according to the AACE Class 4 study.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* MODAL OVERLAY FOR MONTE CARLO SIMULATION */}
                     {showMonteCarlo && (
@@ -1584,46 +1599,32 @@
                                                   min="100" max="100000" step="100" 
                                               />
                                          </div>
-
-                                         <div className="flex items-center justify-between bg-white px-2 py-1 rounded border border-slate-300 shadow-sm flex-1 md:flex-none shrink-0">
-                                              <span className="text-[10px] sm:text-xs font-bold text-slate-700 mr-2 whitespace-nowrap">CAPEX Subsidy:</span>
-                                              <div className="flex items-center">
-                                                  <input 
-                                                      type="number" 
-                                                      value={(params.C3 * 100).toFixed(0)} 
-                                                      onChange={e => { const val = parseFloat(e.target.value); if(!isNaN(val)) setParams(p => ({...p, C3: Math.min(100, Math.max(0, val))/100})); }} 
-                                                      className="w-10 sm:w-12 text-right text-[10px] sm:text-xs font-mono outline-none text-slate-800" 
-                                                      min="0" max="100" 
-                                                  />
-                                                  <span className="text-[10px] sm:text-xs font-bold text-slate-500 ml-1">%</span>
-                                              </div>
-                                         </div>
                                      </div>
 
-                                     <div className={`flex flex-col sm:flex-row items-stretch sm:items-center bg-white rounded border shadow-sm overflow-hidden shrink-0 transition-colors w-full md:w-auto ${riskConfig.RefPrice.isFixed ? 'bg-indigo-50/40 border-indigo-300 focus-within:ring-1 focus-within:ring-indigo-400' : 'border-slate-300 focus-within:ring-1 focus-within:ring-purple-300'}`}>
-                                          <div className={`px-2 py-1.5 sm:py-1 border-b sm:border-b-0 sm:border-r flex items-center justify-between sm:justify-start gap-2 ${riskConfig.RefPrice.isFixed ? 'bg-indigo-50/40 border-indigo-200' : 'bg-slate-50 border-slate-200'}`}>
-                                               <span className={`text-[10px] sm:text-xs font-bold whitespace-nowrap ${riskConfig.RefPrice.isFixed ? 'text-indigo-900' : 'text-slate-700'}`}>Ref NH3 Price:</span>
+                                     <div className={`flex flex-col sm:flex-row items-stretch sm:items-center bg-white rounded border shadow-sm overflow-hidden shrink-0 transition-colors w-full md:w-auto ${riskConfig.p_ref_nh3.isFixed ? 'bg-indigo-50/40 border-indigo-300 focus-within:ring-1 focus-within:ring-indigo-400' : 'border-slate-300 focus-within:ring-1 focus-within:ring-purple-300'}`}>
+                                          <div className={`px-2 py-1.5 sm:py-1 border-b sm:border-b-0 sm:border-r flex items-center justify-between sm:justify-start gap-2 ${riskConfig.p_ref_nh3.isFixed ? 'bg-indigo-50/40 border-indigo-200' : 'bg-slate-50 border-slate-200'}`}>
+                                               <span className={`text-[10px] sm:text-xs font-bold whitespace-nowrap ${riskConfig.p_ref_nh3.isFixed ? 'text-indigo-900' : 'text-slate-700'}`}>Ref. A.W. Price:</span>
                                                <button 
-                                                   onClick={() => setRiskConfig(p => ({...p, RefPrice: {...p.RefPrice, isFixed: !p.RefPrice.isFixed}}))} 
-                                                   className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider transition-colors border ${riskConfig.RefPrice.isFixed ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}
+                                                   onClick={() => setRiskConfig(p => ({...p, p_ref_nh3: {...p.p_ref_nh3, isFixed: !p.p_ref_nh3.isFixed}}))} 
+                                                   className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider transition-colors border ${riskConfig.p_ref_nh3.isFixed ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}
                                                >
-                                                   {riskConfig.RefPrice.isFixed ? 'Fixed' : 'Modeled'}
+                                                   {riskConfig.p_ref_nh3.isFixed ? 'Fixed' : 'Modeled'}
                                                </button>
                                           </div>
                                           <div className="px-2 py-1.5 sm:py-1 flex items-center justify-between sm:justify-end gap-1 flex-1">
                                               <div className="flex items-center">
                                                   <input 
                                                       type="number" 
-                                                      value={params.RefPrice} 
-                                                      onChange={e => { const val = parseFloat(e.target.value); setParams(p => ({...p, RefPrice: isNaN(val) ? 0 : val})); }} 
+                                                      value={params.p_ref_nh3} 
+                                                      onChange={e => { const val = parseFloat(e.target.value); setParams(p => ({...p, p_ref_nh3: isNaN(val) ? 0 : val})); }} 
                                                       className="w-12 sm:w-16 text-right text-[10px] sm:text-xs font-mono font-bold outline-none text-slate-800 custom-number-input bg-transparent" 
                                                   />
                                                   <span className="text-[10px] sm:text-xs font-bold text-slate-500 ml-1 sm:mr-2">€/t</span>
                                               </div>
-                                              {!riskConfig.RefPrice.isFixed && (
+                                              {!riskConfig.p_ref_nh3.isFixed && (
                                                   <select 
-                                                      value={riskConfig.RefPrice.cv} 
-                                                      onChange={e => setRiskConfig(p => ({...p, RefPrice: {...p.RefPrice, cv: parseFloat(e.target.value)}}))} 
+                                                      value={riskConfig.p_ref_nh3.cv} 
+                                                      onChange={e => setRiskConfig(p => ({...p, p_ref_nh3: {...p.p_ref_nh3, cv: parseFloat(e.target.value)}}))} 
                                                       className="text-[10px] sm:text-xs bg-slate-50 border border-slate-200 text-purple-700 font-bold rounded px-1 py-0.5 focus:outline-none focus:border-purple-400 cursor-pointer"
                                                   >
                                                        <option value={10}>Low (10% CV)</option>
@@ -1658,7 +1659,7 @@
                                                     </p>
                                                     <div className="grid grid-cols-1 gap-3 pt-3 border-t border-indigo-200/80">
                                                         <div>
-                                                            <strong className="text-indigo-950 block mb-1">Engineering (Modified-PERT Distribution):</strong>
+                                                            <strong className="text-indigo-950 block mb-1">Engineering & Costs (Modified-PERT Distribution):</strong>
                                                             We use a variation of the Beta-PERT distribution. The <strong>γ (Gamma)</strong> parameter controls the flatness of the bell curve. Default is 4. Lowering the weight (e.g., γ = 2) flattens the curve, simulating higher uncertainty. Increasing it (e.g., γ = 8) sharpens the peak around the Mode.
                                                         </div>
                                                         <div className="pt-2 border-t border-indigo-200/50">
@@ -1666,235 +1667,301 @@
                                                             We use a lognormal curve because it strictly caps the lowest possible price at zero, but allows a long "tail" for massive price spikes during supply chain shocks.<br/>
                                                             <strong>CV% (Coefficient of Variation)</strong> is the Standard Deviation expressed as a percentage of the Mean (e.g., at 100€, a 20% CV means a 20€ standard deviation). A larger CV% stretches and flattens the curve, drastically increasing extreme upside risks.
                                                         </div>
-                                                        <div className="pt-2 border-t border-indigo-200/50">
-                                                            <strong className="text-indigo-950 block mb-1">Legislative Risk (Discrete Step-Hike):</strong>
-                                                            Fees jump instantly when a new law passes. We model this as a direct probability of a sudden +25% or +50% hike from the base price.<br/>
-                                                            <span className="text-indigo-800/90 ml-2 block mt-1">• <strong>Low Risk:</strong> 80% chance fees stay flat | 15% chance of a +25% hike | 5% chance of a +50% hike.</span>
-                                                            <span className="text-indigo-800/90 ml-2 block">• <strong>Standard Risk:</strong> 60% flat | 30% chance (+25% hike) | 10% chance (+50% hike).</span>
-                                                            <span className="text-indigo-800/90 ml-2 block">• <strong>High Risk:</strong> 40% flat | 40% chance (+25% hike) | 20% chance (+50% hike).</span>
-                                                        </div>
                                                     </div>
                                                 </div>
                                             )}
                                         </div>
 
                                         <div className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-3 px-1 border-b border-slate-200 pb-1 flex items-center gap-2 mt-4">
-                                            <LucideIcon name="settings" className="w-3.5 h-3.5" /> Engineering (Beta-PERT)
+                                            <LucideIcon name="settings" className="w-3.5 h-3.5" /> Technical Parameters
                                         </div>
                                         <RiskSliderPERT 
-                                            label="EDBM Specific Energy" minBound={2} maxBound={30} 
-                                            min={riskConfig.C43.min} mode={params.C43} max={riskConfig.C43.max} gamma={riskConfig.C43.gamma}
-                                            unit="kWh/kg" isFixed={riskConfig.C43.isFixed} 
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C43:{...p.C43, isFixed:!p.C43.isFixed}}))}
+                                            label="System Lifetime" minBound={10} maxBound={20} 
+                                            min={riskConfig.lifetime_proj_yrs.min} mode={params.lifetime_proj_yrs} max={riskConfig.lifetime_proj_yrs.max} gamma={riskConfig.lifetime_proj_yrs.gamma}
+                                            unit="yr" decimals={0} isFixed={riskConfig.lifetime_proj_yrs.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, lifetime_proj_yrs:{...p.lifetime_proj_yrs, isFixed:!p.lifetime_proj_yrs.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
                                             isDragging={isDragging}
-                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C43:{...p.C43, gamma: g}}))}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, lifetime_proj_yrs:{...p.lifetime_proj_yrs, gamma: g}}))}
                                             onChange={(vals) => { 
-                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C43:{...p.C43, min:vals.min}})); 
-                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C43:{...p.C43, max:vals.max}})); 
-                                                if(vals.mode!==undefined) setParams(p=>({...p, C43:vals.mode})); 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, lifetime_proj_yrs:{...p.lifetime_proj_yrs, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, lifetime_proj_yrs:{...p.lifetime_proj_yrs, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, lifetime_proj_yrs:vals.mode})); 
                                             }} 
                                         />
                                         <RiskSliderPERT 
-                                            label="RO Specific Energy" minBound={0.5} maxBound={3.5} 
-                                            min={riskConfig.C27.min} mode={params.C27} max={riskConfig.C27.max} gamma={riskConfig.C27.gamma}
-                                            unit="kWh/m³" decimals={2} isFixed={riskConfig.C27.isFixed}
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C27:{...p.C27, isFixed:!p.C27.isFixed}}))}
+                                            label="Maintenance Factor (CAPEX)" minBound={0.02} maxBound={0.04} 
+                                            min={riskConfig.maint_factor.min} mode={params.maint_factor} max={riskConfig.maint_factor.max} gamma={riskConfig.maint_factor.gamma}
+                                            unit="%" scale={100} isFixed={riskConfig.maint_factor.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, maint_factor:{...p.maint_factor, isFixed:!p.maint_factor.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
                                             isDragging={isDragging}
-                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C27:{...p.C27, gamma: g}}))}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, maint_factor:{...p.maint_factor, gamma: g}}))}
                                             onChange={(vals) => { 
-                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C27:{...p.C27, min:vals.min}})); 
-                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C27:{...p.C27, max:vals.max}})); 
-                                                if(vals.mode!==undefined) setParams(p=>({...p, C27:vals.mode})); 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, maint_factor:{...p.maint_factor, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, maint_factor:{...p.maint_factor, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, maint_factor:vals.mode})); 
                                             }} 
                                         />
                                         <RiskSliderPERT 
-                                            label="Industrial Steam Cost" minBound={10} maxBound={300} 
-                                            min={riskConfig.C54.min} mode={params.C54} max={riskConfig.C54.max} gamma={riskConfig.C54.gamma}
-                                            unit="€/t" decimals={0} isFixed={riskConfig.C54.isFixed}
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C54:{...p.C54, isFixed:!p.C54.isFixed}}))}
+                                            label="Energy Filtration/Pre-Treatment" minBound={0} maxBound={1000000} 
+                                            min={riskConfig.e_filtr_kwh_yr.min} mode={params.e_filtr_kwh_yr} max={riskConfig.e_filtr_kwh_yr.max} gamma={riskConfig.e_filtr_kwh_yr.gamma}
+                                            unit="kWh/yr" decimals={0} isFixed={riskConfig.e_filtr_kwh_yr.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, e_filtr_kwh_yr:{...p.e_filtr_kwh_yr, isFixed:!p.e_filtr_kwh_yr.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
                                             isDragging={isDragging}
-                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C54:{...p.C54, gamma: g}}))}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, e_filtr_kwh_yr:{...p.e_filtr_kwh_yr, gamma: g}}))}
                                             onChange={(vals) => { 
-                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C54:{...p.C54, min:vals.min}})); 
-                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C54:{...p.C54, max:vals.max}})); 
-                                                if(vals.mode!==undefined) setParams(p=>({...p, C54:vals.mode})); 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, e_filtr_kwh_yr:{...p.e_filtr_kwh_yr, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, e_filtr_kwh_yr:{...p.e_filtr_kwh_yr, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, e_filtr_kwh_yr:vals.mode})); 
                                             }} 
                                         />
                                         <RiskSliderPERT 
-                                            label="Steam Ratio in Stripper" minBound={0.05} maxBound={0.40} 
-                                            min={riskConfig.C53.min} mode={params.C53} max={riskConfig.C53.max} gamma={riskConfig.C53.gamma}
-                                            unit="stm/liq" scale={1} decimals={3} isFixed={riskConfig.C53.isFixed}
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C53:{...p.C53, isFixed:!p.C53.isFixed}}))}
+                                            label="RO Specific Energy" minBound={1.0} maxBound={1.2} 
+                                            min={riskConfig.espec_ro.min} mode={params.espec_ro} max={riskConfig.espec_ro.max} gamma={riskConfig.espec_ro.gamma}
+                                            unit="kWh/m³" decimals={2} isFixed={riskConfig.espec_ro.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, espec_ro:{...p.espec_ro, isFixed:!p.espec_ro.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
                                             isDragging={isDragging}
-                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C53:{...p.C53, gamma: g}}))}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, espec_ro:{...p.espec_ro, gamma: g}}))}
                                             onChange={(vals) => { 
-                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C53:{...p.C53, min:vals.min}})); 
-                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C53:{...p.C53, max:vals.max}})); 
-                                                if(vals.mode!==undefined) setParams(p=>({...p, C53:vals.mode})); 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, espec_ro:{...p.espec_ro, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, espec_ro:{...p.espec_ro, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, espec_ro:vals.mode})); 
                                             }} 
                                         />
                                         <RiskSliderPERT 
-                                            label="Maintenance Factor (CAPEX)" minBound={0.01} maxBound={0.25} 
-                                            min={riskConfig.C7.min} mode={params.C7} max={riskConfig.C7.max} gamma={riskConfig.C7.gamma}
-                                            unit="%" scale={100} isFixed={riskConfig.C7.isFixed}
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C7:{...p.C7, isFixed:!p.C7.isFixed}}))}
+                                            label="EDBM Specific Energy" minBound={8.0} maxBound={10.0} 
+                                            min={riskConfig.espec_edbm.min} mode={params.espec_edbm} max={riskConfig.espec_edbm.max} gamma={riskConfig.espec_edbm.gamma}
+                                            unit="kWh/kg" isFixed={riskConfig.espec_edbm.isFixed} 
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, espec_edbm:{...p.espec_edbm, isFixed:!p.espec_edbm.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
                                             isDragging={isDragging}
-                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C7:{...p.C7, gamma: g}}))}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, espec_edbm:{...p.espec_edbm, gamma: g}}))}
                                             onChange={(vals) => { 
-                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C7:{...p.C7, min:vals.min}})); 
-                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C7:{...p.C7, max:vals.max}})); 
-                                                if(vals.mode!==undefined) setParams(p=>({...p, C7:vals.mode})); 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, espec_edbm:{...p.espec_edbm, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, espec_edbm:{...p.espec_edbm, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, espec_edbm:vals.mode})); 
                                             }} 
                                         />
                                         <RiskSliderPERT 
-                                            label="System Lifetime" minBound={5} maxBound={30} 
-                                            min={riskConfig.C16.min} mode={params.C16} max={riskConfig.C16.max} gamma={riskConfig.C16.gamma}
-                                            unit="yr" decimals={0} isFixed={riskConfig.C16.isFixed}
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C16:{...p.C16, isFixed:!p.C16.isFixed}}))}
+                                            label="Aux. Electricity (Add.)" minBound={0.025} maxBound={0.075} 
+                                            min={riskConfig.aux_el_factor.min} mode={params.aux_el_factor} max={riskConfig.aux_el_factor.max} gamma={riskConfig.aux_el_factor.gamma}
+                                            unit="%" scale={100} decimals={1} isFixed={riskConfig.aux_el_factor.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, aux_el_factor:{...p.aux_el_factor, isFixed:!p.aux_el_factor.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
                                             isDragging={isDragging}
-                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C16:{...p.C16, gamma: g}}))}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, aux_el_factor:{...p.aux_el_factor, gamma: g}}))}
                                             onChange={(vals) => { 
-                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C16:{...p.C16, min:vals.min}})); 
-                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C16:{...p.C16, max:vals.max}})); 
-                                                if(vals.mode!==undefined) setParams(p=>({...p, C16:vals.mode})); 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, aux_el_factor:{...p.aux_el_factor, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, aux_el_factor:{...p.aux_el_factor, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, aux_el_factor:vals.mode})); 
                                             }} 
                                         />
                                         <RiskSliderPERT 
-                                            label="WACC" minBound={0.01} maxBound={0.20} 
-                                            min={riskConfig.C15.min} mode={params.C15} max={riskConfig.C15.max} gamma={riskConfig.C15.gamma}
-                                            unit="%" scale={100} isFixed={riskConfig.C15.isFixed}
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C15:{...p.C15, isFixed:!p.C15.isFixed}}))}
+                                            label="Steam Ratio in Stripper" minBound={0.165} maxBound={0.185} 
+                                            min={riskConfig.steam_ratio.min} mode={params.steam_ratio} max={riskConfig.steam_ratio.max} gamma={riskConfig.steam_ratio.gamma}
+                                            unit="stm/liq" scale={1} decimals={3} isFixed={riskConfig.steam_ratio.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, steam_ratio:{...p.steam_ratio, isFixed:!p.steam_ratio.isFixed}}))}
                                             onDragStart={() => setIsDragging(true)}
                                             isDragging={isDragging}
-                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C15:{...p.C15, gamma: g}}))}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, steam_ratio:{...p.steam_ratio, gamma: g}}))}
                                             onChange={(vals) => { 
-                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C15:{...p.C15, min:vals.min}})); 
-                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C15:{...p.C15, max:vals.max}})); 
-                                                if(vals.mode!==undefined) setParams(p=>({...p, C15:vals.mode})); 
-                                            }} 
-                                        />
-                                        
-                                        <div className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-3 px-1 border-b border-slate-200 pb-1 flex items-center gap-2 mt-6">
-                                            <LucideIcon name="building-2" className="w-3.5 h-3.5" /> CAPEX Equipment (Beta-PERT)
-                                        </div>
-                                        <RiskSliderPERT 
-                                            label="CAPEX EDBM" minBound={500000} maxBound={4000000} 
-                                            min={riskConfig.C41.min} mode={params.C41} max={riskConfig.C41.max} gamma={riskConfig.C41.gamma}
-                                            unit="€" decimals={0} isFixed={riskConfig.C41.isFixed}
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C41:{...p.C41, isFixed:!p.C41.isFixed}}))}
-                                            onDragStart={() => setIsDragging(true)}
-                                            isDragging={isDragging}
-                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C41:{...p.C41, gamma: g}}))}
-                                            onChange={(vals) => { 
-                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C41:{...p.C41, min:vals.min}})); 
-                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C41:{...p.C41, max:vals.max}})); 
-                                                if(vals.mode!==undefined) setParams(p=>({...p, C41:vals.mode})); 
-                                            }} 
-                                        />
-                                        <RiskSliderPERT 
-                                            label="CAPEX Aux. Works" minBound={250000} maxBound={3000000} 
-                                            min={riskConfig.C20.min} mode={params.C20} max={riskConfig.C20.max} gamma={riskConfig.C20.gamma}
-                                            unit="€" decimals={0} isFixed={riskConfig.C20.isFixed}
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C20:{...p.C20, isFixed:!p.C20.isFixed}}))}
-                                            onDragStart={() => setIsDragging(true)}
-                                            isDragging={isDragging}
-                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C20:{...p.C20, gamma: g}}))}
-                                            onChange={(vals) => { 
-                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C20:{...p.C20, min:vals.min}})); 
-                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C20:{...p.C20, max:vals.max}})); 
-                                                if(vals.mode!==undefined) setParams(p=>({...p, C20:vals.mode})); 
-                                            }} 
-                                        />
-                                        <RiskSliderPERT 
-                                            label="CAPEX RO" minBound={100000} maxBound={600000} 
-                                            min={riskConfig.C25.min} mode={params.C25} max={riskConfig.C25.max} gamma={riskConfig.C25.gamma}
-                                            unit="€" decimals={0} isFixed={riskConfig.C25.isFixed}
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C25:{...p.C25, isFixed:!p.C25.isFixed}}))}
-                                            onDragStart={() => setIsDragging(true)}
-                                            isDragging={isDragging}
-                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C25:{...p.C25, gamma: g}}))}
-                                            onChange={(vals) => { 
-                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C25:{...p.C25, min:vals.min}})); 
-                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C25:{...p.C25, max:vals.max}})); 
-                                                if(vals.mode!==undefined) setParams(p=>({...p, C25:vals.mode})); 
-                                            }} 
-                                        />
-                                        <RiskSliderPERT 
-                                            label="CAPEX Stripper" minBound={150000} maxBound={1000000} 
-                                            min={riskConfig.C49.min} mode={params.C49} max={riskConfig.C49.max} gamma={riskConfig.C49.gamma}
-                                            unit="€" decimals={0} isFixed={riskConfig.C49.isFixed}
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C49:{...p.C49, isFixed:!p.C49.isFixed}}))}
-                                            onDragStart={() => setIsDragging(true)}
-                                            isDragging={isDragging}
-                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C49:{...p.C49, gamma: g}}))}
-                                            onChange={(vals) => { 
-                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C49:{...p.C49, min:vals.min}})); 
-                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C49:{...p.C49, max:vals.max}})); 
-                                                if(vals.mode!==undefined) setParams(p=>({...p, C49:vals.mode})); 
-                                            }} 
-                                        />
-                                        <RiskSliderPERT 
-                                            label="CAPEX Filtration" minBound={10000} maxBound={100000} 
-                                            min={riskConfig.C33.min} mode={params.C33} max={riskConfig.C33.max} gamma={riskConfig.C33.gamma}
-                                            unit="€" decimals={0} isFixed={riskConfig.C33.isFixed}
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C33:{...p.C33, isFixed:!p.C33.isFixed}}))}
-                                            onDragStart={() => setIsDragging(true)}
-                                            isDragging={isDragging}
-                                            onGammaChange={(g) => setRiskConfig(p=>({...p, C33:{...p.C33, gamma: g}}))}
-                                            onChange={(vals) => { 
-                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, C33:{...p.C33, min:vals.min}})); 
-                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, C33:{...p.C33, max:vals.max}})); 
-                                                if(vals.mode!==undefined) setParams(p=>({...p, C33:vals.mode})); 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, steam_ratio:{...p.steam_ratio, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, steam_ratio:{...p.steam_ratio, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, steam_ratio:vals.mode})); 
                                             }} 
                                         />
                                         
                                         <div className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-3 mt-6 px-1 border-b border-slate-200 pb-1 flex items-center gap-2">
-                                            <LucideIcon name="trending-up" className="w-3.5 h-3.5" /> Commodities (Lognormal Risk)
+                                            <LucideIcon name="building-2" className="w-3.5 h-3.5" /> CAPEX & Financing
                                         </div>
-                                        <RiskDropdownLogNorm 
-                                            label="Electricity Price" mode={params.C17} cv={riskConfig.C17.cv} 
-                                            unit="€/MWh" isFixed={riskConfig.C17.isFixed}
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C17:{...p.C17, isFixed:!p.C17.isFixed}}))}
-                                            onCvChange={cv => setRiskConfig(p => ({...p, C17: {...p.C17, cv}}))} 
-                                            onModeChange={val => setParams(p => ({...p, C17: val}))} 
+                                        <RiskSliderPERT 
+                                            label="CAPEX Filtration/Pre-Treatment" minBound={0} maxBound={500000} 
+                                            min={riskConfig.capex_filtr.min} mode={params.capex_filtr} max={riskConfig.capex_filtr.max} gamma={riskConfig.capex_filtr.gamma}
+                                            unit="€" decimals={0} isFixed={riskConfig.capex_filtr.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, capex_filtr:{...p.capex_filtr, isFixed:!p.capex_filtr.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, capex_filtr:{...p.capex_filtr, gamma: g}}))}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, capex_filtr:{...p.capex_filtr, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, capex_filtr:{...p.capex_filtr, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, capex_filtr:vals.mode})); 
+                                            }} 
                                         />
-                                        <RiskDropdownLogNorm 
-                                            label="H2SO4 Cost" mode={params.C61} cv={riskConfig.C61.cv} 
-                                            unit="€/t" isFixed={riskConfig.C61.isFixed}
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C61:{...p.C61, isFixed:!p.C61.isFixed}}))}
-                                            onCvChange={cv => setRiskConfig(p => ({...p, C61: {...p.C61, cv}}))} 
-                                            onModeChange={val => setParams(p => ({...p, C61: val}))} 
+                                        <RiskSliderPERT 
+                                            label="CAPEX RO" minBound={350000} maxBound={500000} 
+                                            min={riskConfig.capex_ro.min} mode={params.capex_ro} max={riskConfig.capex_ro.max} gamma={riskConfig.capex_ro.gamma}
+                                            unit="€" decimals={0} isFixed={riskConfig.capex_ro.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, capex_ro:{...p.capex_ro, isFixed:!p.capex_ro.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, capex_ro:{...p.capex_ro, gamma: g}}))}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, capex_ro:{...p.capex_ro, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, capex_ro:{...p.capex_ro, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, capex_ro:vals.mode})); 
+                                            }} 
                                         />
-                                        <RiskDropdownLogNorm 
-                                            label="NaOH Cost" mode={params.C63} cv={riskConfig.C63.cv} 
-                                            unit="€/t" isFixed={riskConfig.C63.isFixed}
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C63:{...p.C63, isFixed:!p.C63.isFixed}}))}
-                                            onCvChange={cv => setRiskConfig(p => ({...p, C63: {...p.C63, cv}}))} 
-                                            onModeChange={val => setParams(p => ({...p, C63: val}))} 
+                                        <RiskSliderPERT 
+                                            label="CAPEX EDBM" minBound={1000000} maxBound={1600000} 
+                                            min={riskConfig.capex_edbm.min} mode={params.capex_edbm} max={riskConfig.capex_edbm.max} gamma={riskConfig.capex_edbm.gamma}
+                                            unit="€" decimals={0} isFixed={riskConfig.capex_edbm.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, capex_edbm:{...p.capex_edbm, isFixed:!p.capex_edbm.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, capex_edbm:{...p.capex_edbm, gamma: g}}))}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, capex_edbm:{...p.capex_edbm, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, capex_edbm:{...p.capex_edbm, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, capex_edbm:vals.mode})); 
+                                            }} 
                                         />
-
+                                        <RiskSliderPERT 
+                                            label="CAPEX Stripper" minBound={800000} maxBound={1200000} 
+                                            min={riskConfig.capex_stripper.min} mode={params.capex_stripper} max={riskConfig.capex_stripper.max} gamma={riskConfig.capex_stripper.gamma}
+                                            unit="€" decimals={0} isFixed={riskConfig.capex_stripper.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, capex_stripper:{...p.capex_stripper, isFixed:!p.capex_stripper.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, capex_stripper:{...p.capex_stripper, gamma: g}}))}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, capex_stripper:{...p.capex_stripper, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, capex_stripper:{...p.capex_stripper, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, capex_stripper:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="CAPEX Aux. Works" minBound={250000} maxBound={750000} 
+                                            min={riskConfig.capex_aux.min} mode={params.capex_aux} max={riskConfig.capex_aux.max} gamma={riskConfig.capex_aux.gamma}
+                                            unit="€" decimals={0} isFixed={riskConfig.capex_aux.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, capex_aux:{...p.capex_aux, isFixed:!p.capex_aux.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, capex_aux:{...p.capex_aux, gamma: g}}))}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, capex_aux:{...p.capex_aux, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, capex_aux:{...p.capex_aux, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, capex_aux:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="CAPEX Subsidy (Sub)" minBound={0.0} maxBound={0.6} 
+                                            min={riskConfig.capex_subsidy.min} mode={params.capex_subsidy} max={riskConfig.capex_subsidy.max} gamma={riskConfig.capex_subsidy.gamma}
+                                            unit="%" scale={100} decimals={0} isFixed={riskConfig.capex_subsidy.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, capex_subsidy:{...p.capex_subsidy, isFixed:!p.capex_subsidy.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, capex_subsidy:{...p.capex_subsidy, gamma: g}}))}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, capex_subsidy:{...p.capex_subsidy, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, capex_subsidy:{...p.capex_subsidy, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, capex_subsidy:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="WACC" minBound={0.07} maxBound={0.09} 
+                                            min={riskConfig.wacc.min} mode={params.wacc} max={riskConfig.wacc.max} gamma={riskConfig.wacc.gamma}
+                                            unit="%" scale={100} isFixed={riskConfig.wacc.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, wacc:{...p.wacc, isFixed:!p.wacc.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, wacc:{...p.wacc, gamma: g}}))}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, wacc:{...p.wacc, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, wacc:{...p.wacc, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, wacc:vals.mode})); 
+                                            }} 
+                                        />
+                                        
                                         <div className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-3 mt-6 px-1 border-b border-slate-200 pb-1 flex items-center gap-2">
-                                            <LucideIcon name="scale" className="w-3.5 h-3.5" /> Legislative (Discrete Risk)
+                                            <LucideIcon name="zap" className="w-3.5 h-3.5" /> Energy, Chemicals & Fees
                                         </div>
-                                        <RiskDropdownDiscrete 
-                                            label="Nitrogen Discharge Fee" mode={params.C69} riskLevel={riskConfig.C69.risk} 
-                                            unit="€/kg N" isFixed={riskConfig.C69.isFixed}
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C69:{...p.C69, isFixed:!p.C69.isFixed}}))}
-                                            onRiskChange={risk => setRiskConfig(p => ({...p, C69: {...p.C69, risk}}))} 
-                                            onModeChange={val => setParams(p => ({...p, C69: val}))} 
+                                        <RiskSliderPERT 
+                                            label="Electricity Price" minBound={75} maxBound={200} 
+                                            min={riskConfig.p_el.min} mode={params.p_el} max={riskConfig.p_el.max} gamma={riskConfig.p_el.gamma}
+                                            unit="€/MWh" decimals={0} isFixed={riskConfig.p_el.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, p_el:{...p.p_el, isFixed:!p.p_el.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, p_el:{...p.p_el, gamma: g}}))}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, p_el:{...p.p_el, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, p_el:{...p.p_el, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, p_el:vals.mode})); 
+                                            }} 
                                         />
-                                        <RiskDropdownDiscrete 
-                                            label="Water Discharge Fee" mode={params.C66} riskLevel={riskConfig.C66.risk} 
-                                            unit="€/m³" isFixed={riskConfig.C66.isFixed}
-                                            onToggleFixed={() => setRiskConfig(p=>({...p, C66:{...p.C66, isFixed:!p.C66.isFixed}}))}
-                                            onRiskChange={risk => setRiskConfig(p => ({...p, C66: {...p.C66, risk}}))} 
-                                            onModeChange={val => setParams(p => ({...p, C66: val}))} 
+                                        <RiskSliderPERT 
+                                            label="Industrial Steam Cost" minBound={35} maxBound={200} 
+                                            min={riskConfig.p_steam.min} mode={params.p_steam} max={riskConfig.p_steam.max} gamma={riskConfig.p_steam.gamma}
+                                            unit="€/t" decimals={0} isFixed={riskConfig.p_steam.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, p_steam:{...p.p_steam, isFixed:!p.p_steam.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, p_steam:{...p.p_steam, gamma: g}}))}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, p_steam:{...p.p_steam, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, p_steam:{...p.p_steam, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, p_steam:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="H2SO4 Cost" minBound={100} maxBound={300} 
+                                            min={riskConfig.p_h2so4.min} mode={params.p_h2so4} max={riskConfig.p_h2so4.max} gamma={riskConfig.p_h2so4.gamma}
+                                            unit="€/t" decimals={0} isFixed={riskConfig.p_h2so4.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, p_h2so4:{...p.p_h2so4, isFixed:!p.h2so4.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, p_h2so4:{...p.p_h2so4, gamma: g}}))}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, p_h2so4:{...p.p_h2so4, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, p_h2so4:{...p.p_h2so4, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, p_h2so4:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="NaOH Cost" minBound={300} maxBound={800} 
+                                            min={riskConfig.p_naoh.min} mode={params.p_naoh} max={riskConfig.p_naoh.max} gamma={riskConfig.p_naoh.gamma}
+                                            unit="€/t" decimals={0} isFixed={riskConfig.p_naoh.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, p_naoh:{...p.p_naoh, isFixed:!p.p_naoh.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, p_naoh:{...p.p_naoh, gamma: g}}))}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, p_naoh:{...p.p_naoh, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, p_naoh:{...p.p_naoh, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, p_naoh:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="Nitrogen Discharge Fee" minBound={1.2} maxBound={2.0} 
+                                            min={riskConfig.fee_n.min} mode={params.fee_n} max={riskConfig.fee_n.max} gamma={riskConfig.fee_n.gamma}
+                                            unit="€/kg N" decimals={1} isFixed={riskConfig.fee_n.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, fee_n:{...p.fee_n, isFixed:!p.fee_n.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, fee_n:{...p.fee_n, gamma: g}}))}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, fee_n:{...p.fee_n, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, fee_n:{...p.fee_n, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, fee_n:vals.mode})); 
+                                            }} 
+                                        />
+                                        <RiskSliderPERT 
+                                            label="Water Discharge Fee" minBound={0} maxBound={0.008} 
+                                            min={riskConfig.fee_water.min} mode={params.fee_water} max={riskConfig.fee_water.max} gamma={riskConfig.fee_water.gamma}
+                                            unit="€/m³" decimals={3} isFixed={riskConfig.fee_water.isFixed}
+                                            onToggleFixed={() => setRiskConfig(p=>({...p, fee_water:{...p.fee_water, isFixed:!p.fee_water.isFixed}}))}
+                                            onDragStart={() => setIsDragging(true)}
+                                            isDragging={isDragging}
+                                            onGammaChange={(g) => setRiskConfig(p=>({...p, fee_water:{...p.fee_water, gamma: g}}))}
+                                            onChange={(vals) => { 
+                                                if(vals.min!==undefined) setRiskConfig(p=>({...p, fee_water:{...p.fee_water, min:vals.min}})); 
+                                                if(vals.max!==undefined) setRiskConfig(p=>({...p, fee_water:{...p.fee_water, max:vals.max}})); 
+                                                if(vals.mode!==undefined) setParams(p=>({...p, fee_water:vals.mode})); 
+                                            }} 
                                         />
                                     </div>
 
@@ -1909,7 +1976,7 @@
                                                 icon={() => <LucideIcon name="target" className="w-5 h-5 text-purple-400 hidden sm:block" />}
                                             >
                                                 <div className="text-[10px] sm:text-xs text-slate-500 mt-2">
-                                                    Chance that Final LCOP will be <strong className="text-emerald-600">below</strong> the Reference NH3 Price (€{params.RefPrice}/t).
+                                                    Chance that Final LCOP will be <strong className="text-emerald-600">below</strong> the Reference NH3 Price (€{params.p_ref_nh3}/t).
                                                 </div>
                                             </KPICard>
 
@@ -1946,7 +2013,7 @@
                                                     <div className="absolute inset-0 flex items-center justify-center">
                                                         <span className="text-purple-700 font-bold bg-white/90 px-4 py-2 rounded-lg shadow-sm border border-purple-100 flex items-center gap-2">
                                                             <LucideIcon name="loader-2" className="w-4 h-4 animate-spin" />
-                                                            Simuluji rizika...
+                                                            Simulating risks...
                                                         </span>
                                                     </div>
                                                 )}
